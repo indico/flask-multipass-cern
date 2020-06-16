@@ -8,6 +8,7 @@
 from __future__ import print_function, unicode_literals
 
 from authlib.integrations.requests_client import OAuth2Session
+from flask import g
 from flask_multipass.data import IdentityInfo
 from flask_multipass.exceptions import IdentityRetrievalFailed, MultipassException
 from flask_multipass.group import Group
@@ -174,10 +175,14 @@ class CERNIdentityProvider(IdentityProvider):
             token_endpoint=token_endpoint,
             grant_type='client_credentials',
         )
-        oauth_session.fetch_access_token(
-            audience='authorization-service-api',
-            headers={'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
-        )
+        token_cache_attr = '_cern_multipass_api_token_{}'.format(self.name)
+        oauth_session.token = g.get(token_cache_attr)
+        if oauth_session.token is None:
+            token = oauth_session.fetch_access_token(
+                audience='authorization-service-api',
+                headers={'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
+            )
+            setattr(g, token_cache_attr, token)
         return oauth_session
 
     def _fetch_identity_data(self, auth_info):
