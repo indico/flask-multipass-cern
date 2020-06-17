@@ -154,6 +154,8 @@ class CERNIdentityProvider(IdentityProvider):
 
     def get_group(self, name):
         group_data = self._get_group_data(name)
+        if not group_data:
+            return None
         return self.group_class(self, group_data['groupIdentifier'])
 
     def search_groups(self, name, exact=False):
