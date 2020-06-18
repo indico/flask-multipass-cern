@@ -7,8 +7,11 @@
 
 from __future__ import print_function, unicode_literals
 
+from functools import wraps
+from inspect import getcallargs
+
 from authlib.integrations.requests_client import OAuth2Session
-from flask import g
+from flask import current_app, g, has_request_context
 from flask_multipass.data import IdentityInfo
 from flask_multipass.exceptions import IdentityRetrievalFailed, MultipassException
 from flask_multipass.group import Group
@@ -23,6 +26,34 @@ CERN_OIDC_WELLKNOWN_URL = 'https://auth.cern.ch/auth/realms/cern/.well-known/ope
 # - affiliations starting with `eduGAIN - `
 # - affiliations starting with `urn:`
 # - first name containing `https://me.yahoo.com`
+
+
+def memoize_request(f):
+    @wraps(f)
+    def memoizer(*args, **kwargs):
+        if not has_request_context() or current_app.config['TESTING'] or current_app.config.get('REPL'):
+            # No memoization outside request context
+            return f(*args, **kwargs)
+
+        try:
+            cache = g._cern_multipass_memoize
+        except AttributeError:
+            g._cern_multipass_memoize = cache = {}
+
+        key = (f.__module__, f.__name__, make_hashable(getcallargs(f, *args, **kwargs)))
+        if key not in cache:
+            cache[key] = f(*args, **kwargs)
+        return cache[key]
+
+    return memoizer
+
+
+def make_hashable(obj):
+    if isinstance(obj, (list, set)):
+        return tuple(obj)
+    elif isinstance(obj, dict):
+        return frozenset((k, make_hashable(v)) for k, v in obj.items())
+    return obj
 
 
 class CERNAuthProvider(AuthlibAuthProvider):
@@ -116,6 +147,7 @@ class CERNIdentityProvider(IdentityProvider):
         data = self._fetch_identity_data(auth_info)
         return IdentityInfo(self, data.pop('upn'), **data)
 
+    @memoize_request
     def search_identities(self, criteria, exact=False):
         if any(len(x) != 1 for x in criteria.values()):
             # Unfortunately the API does not support OR filters (yet?).
@@ -168,6 +200,7 @@ class CERNIdentityProvider(IdentityProvider):
             results = self._fetch_all(api_session, '/api/v1.0/Group', params)
         return {self.group_class(self, res['groupIdentifier']) for res in results}
 
+    @memoize_request
     def _get_api_session(self):
         meta = self.authlib_client.load_server_metadata()
         token_endpoint = meta['token_endpoint'].replace('protocol/openid-connect', 'api-access')
@@ -177,14 +210,10 @@ class CERNIdentityProvider(IdentityProvider):
             token_endpoint=token_endpoint,
             grant_type='client_credentials',
         )
-        token_cache_attr = '_cern_multipass_api_token_{}'.format(self.name)
-        oauth_session.token = g.get(token_cache_attr)
-        if oauth_session.token is None:
-            token = oauth_session.fetch_access_token(
-                audience='authorization-service-api',
-                headers={'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
-            )
-            setattr(g, token_cache_attr, token)
+        oauth_session.fetch_access_token(
+            audience='authorization-service-api',
+            headers={'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
+        )
         return oauth_session
 
     def _fetch_identity_data(self, auth_info):
@@ -239,6 +268,7 @@ class CERNIdentityProvider(IdentityProvider):
             raise IdentityRetrievalFailed('Could not get identity id', provider=self)
         return data['data'][0]['id']
 
+    @memoize_request
     def _get_group_data(self, name):
         params = {
             'filter': ['groupIdentifier:eq:{}'.format(name)],
