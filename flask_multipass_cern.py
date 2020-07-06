@@ -22,12 +22,6 @@ from flask_multipass.providers.authlib import AuthlibAuthProvider, _authlib_oaut
 CERN_OIDC_WELLKNOWN_URL = 'https://auth.cern.ch/auth/realms/cern/.well-known/openid-configuration'
 
 
-# TODO check if the DB still contains crap:
-# - affiliations starting with `eduGAIN - `
-# - affiliations starting with `urn:`
-# - first name containing `https://me.yahoo.com`
-
-
 def memoize_request(f):
     @wraps(f)
     def memoizer(*args, **kwargs):
