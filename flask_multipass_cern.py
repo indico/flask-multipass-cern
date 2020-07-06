@@ -73,17 +73,12 @@ class CERNAuthProvider(AuthlibAuthProvider):
 class CERNGroup(Group):
     supports_member_list = True
 
-    def _get_group_id(self, api_session):
-        data = self.provider._get_group_data(self.name)
-        if not data:
-            return None
-        return data['id']
+    def __init__(self, provider, name, id):
+        self.id = id
+        super(CERNGroup, self).__init__(provider, name)
 
     def get_members(self):
         with self.provider._get_api_session() as api_session:
-            gid = self._get_group_id(api_session)
-            if not gid:
-                return
             params = {
                 'limit': 5000,
                 'field': [
@@ -95,23 +90,21 @@ class CERNGroup(Group):
                 ],
                 'recursive': 'true'
             }
-            results = self.provider._fetch_all(api_session, '/api/v1.0/Group/{}/memberidentities'.format(gid), params)
+            results = self.provider._fetch_all(api_session, '/api/v1.0/Group/{}/memberidentities'.format(self.id),
+                                               params)
         for res in results:
             del res['id']  # id is always included
             yield IdentityInfo(self.provider, res.pop('upn'), **res)
 
     def has_member(self, identifier):
         with self.provider._get_api_session() as api_session:
-            gid = self._get_group_id(api_session)
-            if not gid:
+            path = '/api/v1.0/Identity/{}/isMemberRecursive/{}'.format(identifier, self.name)
+            resp = api_session.get(self.provider.authz_api_base + path)
+            if resp.status_code == 404:
                 return False
-            params = {
-                'filter': ['upn:eq:{}'.format(identifier)],
-                'field': ['upn'],
-                'recursive': 'true'
-            }
-            results = self.provider._fetch_all(api_session, '/api/v1.0/Group/{}/memberidentities'.format(gid), params)
-            return len(results) == 1 and results[0]['upn'] == identifier
+            resp.raise_for_status()
+            data = resp.json()
+        return data['data']['isMember']
 
 
 class CERNIdentityProvider(IdentityProvider):
@@ -181,24 +174,28 @@ class CERNIdentityProvider(IdentityProvider):
     def get_identity_groups(self, identifier):
         with self._get_api_session() as api_session:
             iid = self._get_identity_id_by_upn(api_session, identifier)
-            results = self._fetch_all(api_session, '/api/v1.0/Identity/{}/groups'.format(iid), {'recursive': 'true'})
-        return {self.group_class(self, res['groupIdentifier']) for res in results}
+            params = {
+                'recursive': 'true',
+                'field': ['groupIdentifier', 'id'],
+            }
+            results = self._fetch_all(api_session, '/api/v1.0/Identity/{}/groups'.format(iid), params)
+        return {self.group_class(self, res['groupIdentifier'], res['id']) for res in results}
 
     def get_group(self, name):
         group_data = self._get_group_data(name)
         if not group_data:
             return None
-        return self.group_class(self, group_data['groupIdentifier'])
+        return self.group_class(self, group_data['groupIdentifier'], group_data['id'])
 
     def search_groups(self, name, exact=False):
         params = {
             'limit': 5000,
             'filter': ['groupIdentifier:{}:{}'.format('eq' if exact else 'contains', name)],
-            'field': ['groupIdentifier'],
+            'field': ['groupIdentifier', 'id'],
         }
         with self._get_api_session() as api_session:
             results = self._fetch_all(api_session, '/api/v1.0/Group', params)
-        return {self.group_class(self, res['groupIdentifier']) for res in results}
+        return {self.group_class(self, res['groupIdentifier'], res['id']) for res in results}
 
     @memoize_request
     def _get_api_session(self):
