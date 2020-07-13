@@ -167,13 +167,11 @@ class CERNIdentityProvider(IdentityProvider):
 
     def get_identity_groups(self, identifier):
         with self._get_api_session() as api_session:
-            iid = self._get_identity_id_by_upn(api_session, identifier)
-            params = {
-                'recursive': 'true',
-                'field': ['groupIdentifier', 'id'],
-            }
-            results = self._fetch_all(api_session, '/api/v1.0/Identity/{}/groups'.format(iid), params)
-        return {self.group_class(self, res['groupIdentifier'], res['id']) for res in results}
+            path = self.authz_api_base + '/api/v1.0/IdentityMembership/{}/precomputed'
+            resp = api_session.get(path.format(identifier))
+            resp.raise_for_status()
+            results = resp.json()['data']
+        return {self.group_class(self, res['groupIdentifier'], res['groupId']) for res in results}
 
     def get_group(self, name):
         group_data = self._get_group_data(name)
@@ -246,18 +244,6 @@ class CERNIdentityProvider(IdentityProvider):
             resp.raise_for_status()
             data = resp.json()
         return results
-
-    def _get_identity_id_by_upn(self, api_session, upn):
-        params = {
-            'filter': 'upn:eq:{}'.format(upn),
-            'field': ['id']
-        }
-        resp = api_session.get(self.authz_api_base + '/api/v1.0/Identity', params=params)
-        resp.raise_for_status()
-        data = resp.json()
-        if len(data['data']) != 1:
-            raise IdentityRetrievalFailed('Could not get identity id', provider=self)
-        return data['data'][0]['id']
 
     @memoize_request
     def _get_group_data(self, name):
