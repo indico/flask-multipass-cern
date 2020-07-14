@@ -13,7 +13,7 @@ from inspect import getcallargs
 from authlib.integrations.requests_client import OAuth2Session
 from flask import current_app, g, has_request_context
 from flask_multipass.data import IdentityInfo
-from flask_multipass.exceptions import IdentityRetrievalFailed, MultipassException
+from flask_multipass.exceptions import MultipassException
 from flask_multipass.group import Group
 from flask_multipass.identity import IdentityProvider
 from flask_multipass.providers.authlib import AuthlibAuthProvider, _authlib_oauth
