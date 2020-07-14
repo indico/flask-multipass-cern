@@ -138,9 +138,20 @@ class CERNIdentityProvider(IdentityProvider):
     def search_identities(self, criteria, exact=False):
         if any(len(x) != 1 for x in criteria.values()):
             # Unfortunately the API does not support OR filters (yet?).
-            # Fortunately we never search for more than one value anyway!
-            raise MultipassException('This provider does not support multiple values for a search criterion',
-                                     provider=self)
+            # Fortunately we never search for more than one value anyway, except for emails when
+            # looking up identities based on the user's email address.
+            if len(criteria) != 1:
+                raise MultipassException('This provider does not support multiple values for a search criterion',
+                                         provider=self)
+
+            field, values = dict(criteria).popitem()
+            seen = set()
+            for value in values:
+                for identity in self.search_identities({field: [value]}, exact=exact):
+                    if identity.identifier not in seen:
+                        seen.add(identity.identifier)
+                        yield identity
+            return
 
         criteria = {k: next(iter(v)) for k, v in criteria.items()}
         op = 'eq' if exact else 'contains'
