@@ -113,12 +113,12 @@ class CERNIdentityProvider(IdentityProvider):
         super(CERNIdentityProvider, self).__init__(*args, **kwargs)
         self.authlib_client = _authlib_oauth.register(self.name + '-idp', **self.authlib_settings)
         self.settings.setdefault('authz_api', 'https://authorization-service-api.web.cern.ch')
-        self.settings['mapping'] = {
+        self.settings.setdefault('mapping', {
             'first_name': 'firstName',
             'last_name': 'lastName',
             'affiliation': 'instituteName',
             'email': 'primaryAccountEmail',
-        }
+        })
 
     @property
     def authlib_settings(self):
