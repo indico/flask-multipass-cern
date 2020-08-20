@@ -85,7 +85,7 @@ class CERNGroup(Group):
                 'recursive': 'true'
             }
             results = self.provider._fetch_all(api_session, '/api/v1.0/Group/{}/memberidentities'.format(self.id),
-                                               params)
+                                               params)[0]
         for res in results:
             del res['id']  # id is always included
             yield IdentityInfo(self.provider, res.pop('upn'), **res)
@@ -105,6 +105,7 @@ class CERNIdentityProvider(IdentityProvider):
     supports_refresh = False
     supports_get = False
     supports_search = True
+    supports_search_ex = True
     supports_groups = True
     supports_get_identity_groups = True
     group_class = CERNGroup
@@ -112,6 +113,7 @@ class CERNIdentityProvider(IdentityProvider):
     def __init__(self, *args, **kwargs):
         super(CERNIdentityProvider, self).__init__(*args, **kwargs)
         self.authlib_client = _authlib_oauth.register(self.name + '-idp', **self.authlib_settings)
+        self.settings.setdefault('extra_search_filters', [])
         self.settings.setdefault('authz_api', 'https://authorization-service-api.web.cern.ch')
         self.settings.setdefault('mapping', {
             'first_name': 'firstName',
@@ -134,8 +136,11 @@ class CERNIdentityProvider(IdentityProvider):
         data = self._fetch_identity_data(auth_info)
         return IdentityInfo(self, data.pop('upn'), **data)
 
-    @memoize_request
     def search_identities(self, criteria, exact=False):
+        return iter(self.search_identities_ex(criteria, exact=exact)[0])
+
+    @memoize_request
+    def search_identities_ex(self, criteria, exact=False, limit=None):
         if any(len(x) != 1 for x in criteria.values()):
             # Unfortunately the API does not support OR filters (yet?).
             # Fortunately we never search for more than one value anyway, except for emails when
@@ -146,35 +151,43 @@ class CERNIdentityProvider(IdentityProvider):
 
             field, values = dict(criteria).popitem()
             seen = set()
+            total = 0
+            all_identities = []
             for value in values:
-                for identity in self.search_identities({field: [value]}, exact=exact):
+                identities = self.search_identities_ex({field: [value]}, exact=exact, limit=limit)[0]
+                for identity in identities:
                     if identity.identifier not in seen:
                         seen.add(identity.identifier)
-                        yield identity
-            return
+                        all_identities.append(identity)
+                        total += 1
+            return all_identities, total
 
         criteria = {k: next(iter(v)) for k, v in criteria.items()}
         op = 'eq' if exact else 'contains'
         api_criteria = ['{}:{}:{}'.format(k, op, v) for k, v in criteria.items()]
         api_criteria.append('type:eq:Person')
+        api_criteria += self.settings['extra_search_filters']
         params = {
-            'limit': 5000,
+            'limit': limit or 5000,
             'filter': api_criteria,
             'field': [
                 'upn',
                 'firstName',
                 'lastName',
+                'displayName',
                 'instituteName',
                 'primaryAccountEmail',
             ],
         }
 
         with self._get_api_session() as api_session:
-            results = self._fetch_all(api_session, '/api/v1.0/Identity', params)
+            results, total = self._fetch_all(api_session, '/api/v1.0/Identity', params, limit=limit)
 
+        identities = []
         for res in results:
             del res['id']
-            yield IdentityInfo(self, res['upn'], **res)
+            identities.append(IdentityInfo(self, res['upn'], **res))
+        return identities, total
 
     def get_identity_groups(self, identifier):
         with self._get_api_session() as api_session:
@@ -197,7 +210,7 @@ class CERNIdentityProvider(IdentityProvider):
             'field': ['groupIdentifier', 'id'],
         }
         with self._get_api_session() as api_session:
-            results = self._fetch_all(api_session, '/api/v1.0/Group', params)
+            results = self._fetch_all(api_session, '/api/v1.0/Group', params)[0]
         return {self.group_class(self, res['groupIdentifier'], res['id']) for res in results}
 
     @memoize_request
@@ -241,20 +254,24 @@ class CERNIdentityProvider(IdentityProvider):
         del data['id']  # id is always included
         return data
 
-    def _fetch_all(self, api_session, endpoint, params):
+    def _fetch_all(self, api_session, endpoint, params, limit=None):
         results = []
         resp = api_session.get(self.authz_api_base + endpoint, params=params)
         resp.raise_for_status()
         data = resp.json()
+        total = data['pagination']['total']
 
         while True:
             results += data['data']
-            if not data['pagination']['next']:
+            if not data['pagination']['next'] or (limit is not None and len(results) >= limit):
                 break
             resp = api_session.get(self.authz_api_base + data['pagination']['next'])
             resp.raise_for_status()
             data = resp.json()
-        return results
+        if limit is not None:
+            # in case we got too many results due to a large last page
+            results = results[:limit]
+        return results, total
 
     @memoize_request
     def _get_group_data(self, name):
