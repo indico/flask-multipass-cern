@@ -1,11 +1,9 @@
 # This file is part of Flask-Multipass-CERN.
-# Copyright (C) 2020 CERN
+# Copyright (C) 2020 - 2021 CERN
 #
 # Flask-Multipass-CERN is free software; you can redistribute
 # it and/or modify it under the terms of the MIT License; see
 # the LICENSE file for more details.
-
-from __future__ import print_function, unicode_literals
 
 from functools import wraps
 from importlib import import_module
@@ -53,7 +51,7 @@ def make_hashable(obj):
 
 class CERNAuthProvider(AuthlibAuthProvider):
     def __init__(self, *args, **kwargs):
-        super(CERNAuthProvider, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.include_token = 'only'  # we get all data from the identity API
 
     @property
@@ -88,8 +86,7 @@ class CERNGroup(Group):
                 ],
                 'recursive': 'true'
             }
-            results = self.provider._fetch_all(api_session, '/api/v1.0/Group/{}/memberidentities'.format(gid),
-                                               params)[0]
+            results = self.provider._fetch_all(api_session, f'/api/v1.0/Group/{gid}/memberidentities', params)[0]
         for res in results:
             del res['id']  # id is always included
             self.provider._fix_phone(res)
@@ -115,7 +112,7 @@ class CERNIdentityProvider(IdentityProvider):
     group_class = CERNGroup
 
     def __init__(self, *args, **kwargs):
-        super(CERNIdentityProvider, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.authlib_client = _authlib_oauth.register(self.name + '-idp', **self.authlib_settings)
         self.settings.setdefault('cache', None)
         self.settings.setdefault('extra_search_filters', [])
@@ -201,7 +198,7 @@ class CERNIdentityProvider(IdentityProvider):
 
         criteria = {k: next(iter(v)) for k, v in criteria.items()}
         op = 'eq' if exact else 'contains'
-        api_criteria = ['{}:{}:{}'.format(k, op, v) for k, v in criteria.items()]
+        api_criteria = [f'{k}:{op}:{v}' for k, v in criteria.items()]
         api_criteria.append('type:eq:Person')
         api_criteria += self.settings['extra_search_filters']
         params = {
@@ -239,8 +236,7 @@ class CERNIdentityProvider(IdentityProvider):
     def get_identity_groups(self, identifier):
         assert '/' not in identifier
         with self._get_api_session() as api_session:
-            path = self.authz_api_base + '/api/v1.0/IdentityMembership/{}/precomputed'
-            resp = api_session.get(path.format(identifier))
+            resp = api_session.get(f'{self.authz_api_base}/api/v1.0/IdentityMembership/{identifier}/precomputed')
             if resp.status_code == 404:
                 return set()
             resp.raise_for_status()
@@ -251,9 +247,10 @@ class CERNIdentityProvider(IdentityProvider):
         return self.group_class(self, name)
 
     def search_groups(self, name, exact=False):
+        op = 'eq' if exact else 'contains'
         params = {
             'limit': 5000,
-            'filter': ['groupIdentifier:{}:{}'.format('eq' if exact else 'contains', name)],
+            'filter': [f'groupIdentifier:{op}:{name}'],
             'field': ['groupIdentifier'],
         }
         with self._get_api_session() as api_session:
@@ -301,7 +298,7 @@ class CERNIdentityProvider(IdentityProvider):
                 'primaryAccountEmail',
             ],
         }
-        resp = self.authlib_client.get(self.authz_api_base + '/api/v1.0/Identity/current', token=user_api_token,
+        resp = self.authlib_client.get(f'{self.authz_api_base}/api/v1.0/Identity/current', token=user_api_token,
                                        params=params)
         resp.raise_for_status()
         data = resp.json()['data']
@@ -330,11 +327,11 @@ class CERNIdentityProvider(IdentityProvider):
     @memoize_request
     def _get_group_data(self, name):
         params = {
-            'filter': ['groupIdentifier:eq:{}'.format(name)],
+            'filter': [f'groupIdentifier:eq:{name}'],
             'field': ['id', 'groupIdentifier'],
         }
         with self._get_api_session() as api_session:
-            resp = api_session.get(self.authz_api_base + '/api/v1.0/Group', params=params)
+            resp = api_session.get(f'{self.authz_api_base}/api/v1.0/Group', params=params)
             resp.raise_for_status()
             data = resp.json()
         if len(data['data']) != 1:
