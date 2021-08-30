@@ -8,6 +8,7 @@
 from __future__ import print_function, unicode_literals
 
 from functools import wraps
+from importlib import import_module
 from inspect import getcallargs
 
 from authlib.integrations.requests_client import OAuth2Session
@@ -67,12 +68,14 @@ class CERNAuthProvider(AuthlibAuthProvider):
 class CERNGroup(Group):
     supports_member_list = True
 
-    def __init__(self, provider, name, id):
-        self.id = id
-        super(CERNGroup, self).__init__(provider, name)
-
     def get_members(self):
+        assert '/' not in self.name
         with self.provider._get_api_session() as api_session:
+            group_data = self.provider._get_group_data(self.name)
+            if group_data is None:
+                return
+            gid = group_data['id']
+
             params = {
                 'limit': 5000,
                 'field': [
@@ -84,21 +87,20 @@ class CERNGroup(Group):
                 ],
                 'recursive': 'true'
             }
-            results = self.provider._fetch_all(api_session, '/api/v1.0/Group/{}/memberidentities'.format(self.id),
+            results = self.provider._fetch_all(api_session, '/api/v1.0/Group/{}/memberidentities'.format(gid),
                                                params)[0]
         for res in results:
             del res['id']  # id is always included
             yield IdentityInfo(self.provider, res.pop('upn'), **res)
 
     def has_member(self, identifier):
-        with self.provider._get_api_session() as api_session:
-            path = '/api/v1.0/Identity/{}/isMemberRecursive/{}'.format(identifier, self.name)
-            resp = api_session.get(self.provider.authz_api_base + path)
-            if resp.status_code == 404:
-                return False
-            resp.raise_for_status()
-            data = resp.json()
-        return data['data']['isMember']
+        cache_key = f'flask-multipass-cern:{self.provider.name}:groups:{identifier}'
+        all_groups = self.provider.cache and self.provider.cache.get(cache_key)
+        if all_groups is None:
+            all_groups = {g.name.lower() for g in self.provider.get_identity_groups(identifier)}
+            if self.provider.cache:
+                self.provider.cache.set(cache_key, all_groups, 1800)
+        return self.name.lower() in all_groups
 
 
 class CERNIdentityProvider(IdentityProvider):
@@ -113,8 +115,10 @@ class CERNIdentityProvider(IdentityProvider):
     def __init__(self, *args, **kwargs):
         super(CERNIdentityProvider, self).__init__(*args, **kwargs)
         self.authlib_client = _authlib_oauth.register(self.name + '-idp', **self.authlib_settings)
+        self.settings.setdefault('cache', None)
         self.settings.setdefault('extra_search_filters', [])
         self.settings.setdefault('authz_api', 'https://authorization-service-api.web.cern.ch')
+        self.cache = self._init_cache()
         if not self.settings.get('mapping'):
             # usually mapping is empty, in that case we set some defaults
             self.settings['mapping'] = {
@@ -130,6 +134,18 @@ class CERNIdentityProvider(IdentityProvider):
         settings.setdefault('server_metadata_url', CERN_OIDC_WELLKNOWN_URL)
         return settings
 
+    def _init_cache(self):
+        if self.settings['cache'] is None:
+            return None
+        elif callable(self.settings['cache']):
+            return self.settings['cache']()
+        elif isinstance(self.settings['cache'], str):
+            module_path, class_name = self.settings['cache'].rsplit('.', 1)
+            module = import_module(module_path)
+            return getattr(module, class_name)
+        else:
+            return self.settings['cache']
+
     @property
     def authz_api_base(self):
         return self.settings['authz_api'].rstrip('/')
@@ -143,6 +159,14 @@ class CERNIdentityProvider(IdentityProvider):
 
     @memoize_request
     def search_identities_ex(self, criteria, exact=False, limit=None):
+        use_cache = self.cache and exact and limit is None and len(criteria) == 1 and 'primaryAccountEmail' in criteria
+        if use_cache:
+            emails_key = '-'.join(sorted(x.lower() for x in criteria['primaryAccountEmail']))
+            cache_key = f'flask-multipass-cern:{self.name}:email-identities:{emails_key}'
+            cached_data = self.cache.get(cache_key)
+            if cached_data:
+                return [IdentityInfo(self, res['upn'], **res) for res in cached_data[0]], cached_data[1]
+
         if any(len(x) != 1 for x in criteria.values()):
             # Unfortunately the API does not support OR filters (yet?).
             # Fortunately we never search for more than one value anyway, except for emails when
@@ -186,37 +210,49 @@ class CERNIdentityProvider(IdentityProvider):
             results, total = self._fetch_all(api_session, '/api/v1.0/Identity', params, limit=limit)
 
         identities = []
+        cache_data = []
         for res in results:
+            if not res['upn']:
+                total -= 1
+                continue
             del res['id']
             identities.append(IdentityInfo(self, res['upn'], **res))
+            if use_cache:
+                cache_data.append(res)
+        if use_cache:
+            self.cache.set(cache_key, (cache_data, total), 3600)
         return identities, total
 
     def get_identity_groups(self, identifier):
+        assert '/' not in identifier
         with self._get_api_session() as api_session:
             path = self.authz_api_base + '/api/v1.0/IdentityMembership/{}/precomputed'
             resp = api_session.get(path.format(identifier))
+            if resp.status_code == 404:
+                return set()
             resp.raise_for_status()
             results = resp.json()['data']
-        return {self.group_class(self, res['groupIdentifier'], res['groupId']) for res in results}
+        return {self.group_class(self, res['groupIdentifier']) for res in results}
 
     def get_group(self, name):
-        group_data = self._get_group_data(name)
-        if not group_data:
-            return None
-        return self.group_class(self, group_data['groupIdentifier'], group_data['id'])
+        return self.group_class(self, name)
 
     def search_groups(self, name, exact=False):
         params = {
             'limit': 5000,
             'filter': ['groupIdentifier:{}:{}'.format('eq' if exact else 'contains', name)],
-            'field': ['groupIdentifier', 'id'],
+            'field': ['groupIdentifier'],
         }
         with self._get_api_session() as api_session:
             results = self._fetch_all(api_session, '/api/v1.0/Group', params)[0]
-        return {self.group_class(self, res['groupIdentifier'], res['id']) for res in results}
+        return {self.group_class(self, res['groupIdentifier']) for res in results}
 
     @memoize_request
     def _get_api_session(self):
+        cache_key = f'flask-multipass-cern:{self.name}:api-token'
+        token = self.cache and self.cache.get(cache_key)
+        if token:
+            return OAuth2Session(token=token)
         meta = self.authlib_client.load_server_metadata()
         token_endpoint = meta['token_endpoint'].replace('protocol/openid-connect', 'api-access')
         oauth_session = OAuth2Session(
@@ -229,6 +265,8 @@ class CERNIdentityProvider(IdentityProvider):
             audience='authorization-service-api',
             headers={'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
         )
+        if self.cache:
+            self.cache.set(cache_key, oauth_session.token, oauth_session.token['expires_in'] - 30)
         return oauth_session
 
     def _fetch_identity_data(self, auth_info):
