@@ -83,6 +83,7 @@ class CERNGroup(Group):
                     'firstName',
                     'lastName',
                     'instituteName',
+                    'telephone1',
                     'primaryAccountEmail',
                 ],
                 'recursive': 'true'
@@ -91,6 +92,7 @@ class CERNGroup(Group):
                                                params)[0]
         for res in results:
             del res['id']  # id is always included
+            self.provider._fix_phone(res)
             yield IdentityInfo(self.provider, res.pop('upn'), **res)
 
     def has_member(self, identifier):
@@ -118,6 +120,7 @@ class CERNIdentityProvider(IdentityProvider):
         self.settings.setdefault('cache', None)
         self.settings.setdefault('extra_search_filters', [])
         self.settings.setdefault('authz_api', 'https://authorization-service-api.web.cern.ch')
+        self.settings.setdefault('phone_prefix', '+412276')
         self.cache = self._init_cache()
         if not self.settings.get('mapping'):
             # usually mapping is empty, in that case we set some defaults
@@ -125,6 +128,7 @@ class CERNIdentityProvider(IdentityProvider):
                 'first_name': 'firstName',
                 'last_name': 'lastName',
                 'affiliation': 'instituteName',
+                'phone': 'telephone1',
                 'email': 'primaryAccountEmail',
             }
 
@@ -150,8 +154,15 @@ class CERNIdentityProvider(IdentityProvider):
     def authz_api_base(self):
         return self.settings['authz_api'].rstrip('/')
 
+    def _fix_phone(self, data):
+        phone = data.get('telephone1')
+        if not phone or phone.startswith('+'):
+            return
+        data['telephone1'] = self.settings['phone_prefix'] + phone
+
     def get_identity_from_auth(self, auth_info):
         data = self._fetch_identity_data(auth_info)
+        self._fix_phone(data)
         return IdentityInfo(self, data.pop('upn'), **data)
 
     def search_identities(self, criteria, exact=False):
@@ -202,6 +213,7 @@ class CERNIdentityProvider(IdentityProvider):
                 'lastName',
                 'displayName',
                 'instituteName',
+                'telephone1',
                 'primaryAccountEmail',
             ],
         }
@@ -216,6 +228,7 @@ class CERNIdentityProvider(IdentityProvider):
                 total -= 1
                 continue
             del res['id']
+            self._fix_phone(res)
             identities.append(IdentityInfo(self, res['upn'], **res))
             if use_cache:
                 cache_data.append(res)
@@ -284,6 +297,7 @@ class CERNIdentityProvider(IdentityProvider):
                 'firstName',
                 'lastName',
                 'instituteName',
+                'telephone1',
                 'primaryAccountEmail',
             ],
         }
