@@ -99,6 +99,8 @@ class CERNGroup(Group):
             all_groups = {g.name.lower() for g in self.provider.get_identity_groups(identifier)}
             if self.provider.cache:
                 self.provider.cache.set(cache_key, all_groups, 1800)
+        if self.provider.settings['cern_users_group'] and self.name.lower() == 'cern users':
+            return self.provider.settings['cern_users_group'].lower() in all_groups
         return self.name.lower() in all_groups
 
 
@@ -118,6 +120,7 @@ class CERNIdentityProvider(IdentityProvider):
         self.settings.setdefault('extra_search_filters', [])
         self.settings.setdefault('authz_api', 'https://authorization-service-api.web.cern.ch')
         self.settings.setdefault('phone_prefix', '+412276')
+        self.settings.setdefault('cern_users_group', None)
         self.cache = self._init_cache()
         if not self.settings.get('mapping'):
             # usually mapping is empty, in that case we set some defaults
@@ -255,7 +258,13 @@ class CERNIdentityProvider(IdentityProvider):
         }
         with self._get_api_session() as api_session:
             results = self._fetch_all(api_session, '/api/v1.0/Group', params)[0]
-        return {self.group_class(self, res['groupIdentifier']) for res in results}
+        rv = {self.group_class(self, res['groupIdentifier']) for res in results}
+        if (
+            self.settings['cern_users_group'] and
+            (name.lower() == 'cern users' or (not exact and name.lower() in 'cern users'))
+        ):
+            rv.add(self.group_class(self, 'CERN Users'))
+        return rv
 
     @memoize_request
     def _get_api_session(self):
