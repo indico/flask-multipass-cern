@@ -52,7 +52,7 @@ def make_hashable(obj):
 class CERNAuthProvider(AuthlibAuthProvider):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.include_token = 'only'  # we get all data from the identity API
+        self.include_token = True
 
     @property
     def authlib_settings(self):
@@ -162,6 +162,11 @@ class CERNIdentityProvider(IdentityProvider):
 
     def get_identity_from_auth(self, auth_info):
         data = self._fetch_identity_data(auth_info)
+        groups = auth_info.data.get('groups')
+        if groups is not None and self.cache:
+            groups = {x.lower() for x in groups}
+            cache_key = f'flask-multipass-cern:{self.name}:groups:{data["upn"]}'
+            self.cache.set(cache_key, groups, 1800)
         self._fix_phone(data)
         return IdentityInfo(self, data.pop('upn'), **data)
 
