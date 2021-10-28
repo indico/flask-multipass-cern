@@ -266,7 +266,6 @@ class CERNIdentityProvider(IdentityProvider):
         return identities, total
 
     def get_identity_groups(self, identifier):
-        assert '/' not in identifier
         with self._get_api_session() as api_session:
             resp = api_session.get(f'{self.authz_api_base}/api/v1.0/IdentityMembership/{identifier}/precomputed')
             if resp.status_code == 404:
