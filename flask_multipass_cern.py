@@ -83,6 +83,7 @@ class CERNGroup(Group):
                     'instituteName',
                     'telephone1',
                     'primaryAccountEmail',
+                    'cernPersonId',
                 ],
                 'recursive': 'true'
             }
@@ -90,7 +91,9 @@ class CERNGroup(Group):
         for res in results:
             del res['id']  # id is always included
             self.provider._fix_phone(res)
-            yield IdentityInfo(self.provider, res.pop('upn'), **res)
+            identifier = res.pop('upn')
+            extra_data = self.provider._extract_extra_data(res)
+            yield IdentityInfo(self.provider, identifier, extra_data, **res)
 
     def has_member(self, identifier):
         cache_key = f'flask-multipass-cern:{self.provider.name}:groups:{identifier}'
@@ -105,7 +108,7 @@ class CERNGroup(Group):
 
 
 class CERNIdentityProvider(IdentityProvider):
-    supports_refresh = False
+    supports_refresh = True
     supports_get = False
     supports_search = True
     supports_search_ex = True
@@ -154,11 +157,21 @@ class CERNIdentityProvider(IdentityProvider):
     def authz_api_base(self):
         return self.settings['authz_api'].rstrip('/')
 
+    def refresh_identity(self, identifier, multipass_data):
+        data = self._get_identity_data(identifier)
+        self._fix_phone(data)
+        identifier = data.pop('upn')
+        extra_data = self._extract_extra_data(data)
+        return IdentityInfo(self, identifier, extra_data, **data)
+
     def _fix_phone(self, data):
         phone = data.get('telephone1')
         if not phone or phone.startswith('+'):
             return
         data['telephone1'] = self.settings['phone_prefix'] + phone
+
+    def _extract_extra_data(self, data):
+        return {'cern_person_id': data.pop('cernPersonId', None)}
 
     def get_identity_from_auth(self, auth_info):
         data = self._fetch_identity_data(auth_info)
@@ -168,7 +181,9 @@ class CERNIdentityProvider(IdentityProvider):
             cache_key = f'flask-multipass-cern:{self.name}:groups:{data["upn"]}'
             self.cache.set(cache_key, groups, 1800)
         self._fix_phone(data)
-        return IdentityInfo(self, data.pop('upn'), **data)
+        identifier = data.pop('upn')
+        extra_data = self._extract_extra_data(data)
+        return IdentityInfo(self, identifier, extra_data, **data)
 
     def search_identities(self, criteria, exact=False):
         return iter(self.search_identities_ex(criteria, exact=exact)[0])
@@ -181,7 +196,12 @@ class CERNIdentityProvider(IdentityProvider):
             cache_key = f'flask-multipass-cern:{self.name}:email-identities:{emails_key}'
             cached_data = self.cache.get(cache_key)
             if cached_data:
-                return [IdentityInfo(self, res['upn'], **res) for res in cached_data[0]], cached_data[1]
+                results = []
+                for res in cached_data[0]:
+                    identifier = res.pop('upn')
+                    extra_data = self._extract_extra_data(res)
+                    results.append(IdentityInfo(self, identifier, extra_data, **res))
+                return results, cached_data[1]
 
         if any(len(x) != 1 for x in criteria.values()):
             # Unfortunately the API does not support OR filters (yet?).
@@ -220,6 +240,7 @@ class CERNIdentityProvider(IdentityProvider):
                 'instituteName',
                 'telephone1',
                 'primaryAccountEmail',
+                'cernPersonId',
             ],
         }
 
@@ -234,7 +255,10 @@ class CERNIdentityProvider(IdentityProvider):
                 continue
             del res['id']
             self._fix_phone(res)
-            identities.append(IdentityInfo(self, res['upn'], **res))
+            res_copy = dict(res)
+            identifier = res_copy.pop('upn')
+            extra_data = self._extract_extra_data(res_copy)
+            identities.append(IdentityInfo(self, identifier, extra_data, **res_copy))
             if use_cache:
                 cache_data.append(res)
         if use_cache:
@@ -310,6 +334,7 @@ class CERNIdentityProvider(IdentityProvider):
                 'instituteName',
                 'telephone1',
                 'primaryAccountEmail',
+                'cernPersonId',
             ],
         }
         resp = self.authlib_client.get(f'{self.authz_api_base}/api/v1.0/Identity/current', token=user_api_token,
@@ -351,3 +376,22 @@ class CERNIdentityProvider(IdentityProvider):
         if len(data['data']) != 1:
             return None
         return data['data'][0]
+
+    def _get_identity_data(self, identifier):
+        params = {
+            'field': [
+                'upn',
+                'firstName',
+                'lastName',
+                'displayName',
+                'instituteName',
+                'telephone1',
+                'primaryAccountEmail',
+                'cernPersonId',
+            ]
+        }
+        with self._get_api_session() as api_session:
+            resp = api_session.get(f'{self.authz_api_base}/api/v1.0/Identity/{identifier}', params=params)
+            resp.raise_for_status()
+            data = resp.json()
+        return data['data']
