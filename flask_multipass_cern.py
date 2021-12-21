@@ -16,9 +16,17 @@ from flask_multipass.exceptions import MultipassException
 from flask_multipass.group import Group
 from flask_multipass.identity import IdentityProvider
 from flask_multipass.providers.authlib import AuthlibAuthProvider, _authlib_oauth
+from requests.adapters import HTTPAdapter
+from urllib3 import Retry
 
 
 CERN_OIDC_WELLKNOWN_URL = 'https://auth.cern.ch/auth/realms/cern/.well-known/openid-configuration'
+OIDC_RETRY_COUNT = 5
+retry_config = HTTPAdapter(max_retries=Retry(
+                           total=OIDC_RETRY_COUNT,
+                           status_forcelist=[503, 504],
+                           allowed_methods=frozenset(['GET']),
+                           raise_on_status=False))
 
 
 def memoize_request(f):
@@ -267,6 +275,7 @@ class CERNIdentityProvider(IdentityProvider):
 
     def get_identity_groups(self, identifier):
         with self._get_api_session() as api_session:
+            api_session.mount(self.authz_api_base, retry_config)
             resp = api_session.get(f'{self.authz_api_base}/api/v1.0/IdentityMembership/{identifier}/precomputed')
             if resp.status_code == 404 or resp.status_code == 500:
                 return set()
@@ -345,6 +354,7 @@ class CERNIdentityProvider(IdentityProvider):
 
     def _fetch_all(self, api_session, endpoint, params, limit=None):
         results = []
+        api_session.mount(self.authz_api_base, retry_config)
         resp = api_session.get(self.authz_api_base + endpoint, params=params)
         resp.raise_for_status()
         data = resp.json()
@@ -369,6 +379,7 @@ class CERNIdentityProvider(IdentityProvider):
             'field': ['id', 'groupIdentifier'],
         }
         with self._get_api_session() as api_session:
+            api_session.mount(self.authz_api_base, retry_config)
             resp = api_session.get(f'{self.authz_api_base}/api/v1.0/Group', params=params)
             resp.raise_for_status()
             data = resp.json()
@@ -390,6 +401,7 @@ class CERNIdentityProvider(IdentityProvider):
             ]
         }
         with self._get_api_session() as api_session:
+            api_session.mount(self.authz_api_base, retry_config)
             resp = api_session.get(f'{self.authz_api_base}/api/v1.0/Identity/{identifier}', params=params)
             resp.raise_for_status()
             data = resp.json()
