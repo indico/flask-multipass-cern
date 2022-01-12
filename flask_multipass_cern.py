@@ -275,8 +275,7 @@ class CERNIdentityProvider(IdentityProvider):
 
     def get_identity_groups(self, identifier):
         with self._get_api_session() as api_session:
-            api_session.mount(self.authz_api_base, retry_config)
-            resp = api_session.get(f'{self.authz_api_base}/api/v1.0/IdentityMembership/{identifier}/precomputed')
+            resp = api_session.get(f'{self.authz_api_base}/api/v1.0/IdentityMembership/{identifier}/precomputed', )
             if resp.status_code == 404 or resp.status_code == 500:
                 return set()
             resp.raise_for_status()
@@ -308,7 +307,9 @@ class CERNIdentityProvider(IdentityProvider):
         cache_key = f'flask-multipass-cern:{self.name}:api-token'
         token = self.cache and self.cache.get(cache_key)
         if token:
-            return OAuth2Session(token=token)
+            oauth_session = OAuth2Session(token=token)
+            oauth_session.mount(self.authz_api_base, retry_config)
+            return oauth_session
         meta = self.authlib_client.load_server_metadata()
         token_endpoint = meta['token_endpoint'].replace('protocol/openid-connect', 'api-access')
         oauth_session = OAuth2Session(
@@ -317,6 +318,7 @@ class CERNIdentityProvider(IdentityProvider):
             token_endpoint=token_endpoint,
             grant_type='client_credentials',
         )
+        oauth_session.mount(self.authz_api_base, retry_config)
         oauth_session.fetch_access_token(
             audience='authorization-service-api',
             headers={'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
@@ -354,7 +356,6 @@ class CERNIdentityProvider(IdentityProvider):
 
     def _fetch_all(self, api_session, endpoint, params, limit=None):
         results = []
-        api_session.mount(self.authz_api_base, retry_config)
         resp = api_session.get(self.authz_api_base + endpoint, params=params)
         resp.raise_for_status()
         data = resp.json()
@@ -379,7 +380,6 @@ class CERNIdentityProvider(IdentityProvider):
             'field': ['id', 'groupIdentifier'],
         }
         with self._get_api_session() as api_session:
-            api_session.mount(self.authz_api_base, retry_config)
             resp = api_session.get(f'{self.authz_api_base}/api/v1.0/Group', params=params)
             resp.raise_for_status()
             data = resp.json()
@@ -401,7 +401,6 @@ class CERNIdentityProvider(IdentityProvider):
             ]
         }
         with self._get_api_session() as api_session:
-            api_session.mount(self.authz_api_base, retry_config)
             resp = api_session.get(f'{self.authz_api_base}/api/v1.0/Identity/{identifier}', params=params)
             resp.raise_for_status()
             data = resp.json()
