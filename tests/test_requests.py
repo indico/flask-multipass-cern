@@ -1,28 +1,29 @@
-from unittest.mock import patch
-
 import httpretty
 import pytest
 import requests
 from flask import Flask
 from flask_multipass import Multipass
-from requests import auth
+from indico.core.cache import make_scoped_cache
 from requests.sessions import Session
 
 from flask_multipass_cern import OIDC_RETRY_COUNT, CERNIdentityProvider, retry_config
 
 
 @pytest.fixture()
-def flask_multipass_app():
+def flask_app():
     app = Flask('test')
     Multipass(app)
     with app.app_context():
         yield app
 
+
 @pytest.fixture()
 def httpretty_enabled():
     with httpretty.enabled():
         yield httpretty
+
     httpretty.disable()
+
 
 @pytest.fixture()
 def mock_get_api_session(mocker):
@@ -32,13 +33,17 @@ def mock_get_api_session(mocker):
 
     return mock_session
 
+
 @pytest.fixture()
 def provider():
-    settings = {'authlib_args': {'client_id': 'test', 'client_secret': 'test'}}
+    settings = {
+        'authlib_args': {'client_id': 'test', 'client_secret': 'test'},
+        'cache': make_scoped_cache('flask-multipass-cern')
+    }
     return CERNIdentityProvider(None, 'cip', settings)
 
 
-def test_get_identity_groups_retry(flask_multipass_app, provider, mock_get_api_session, httpretty_enabled):
+def test_get_identity_groups_retry(flask_app, provider, httpretty_enabled, mock_get_api_session):
     authz_api = provider.settings.get('authz_api')
     test_uri = f'{authz_api}/api/v1.0/IdentityMembership/1/precomputed'
 
@@ -49,7 +54,7 @@ def test_get_identity_groups_retry(flask_multipass_app, provider, mock_get_api_s
         assert len(httpretty.latest_requests()) == OIDC_RETRY_COUNT + 1
 
 
-def test_get_identity_data_retry(flask_multipass_app, provider, mock_get_api_session, httpretty_enabled):
+def test_get_identity_data_retry(flask_app, provider, httpretty_enabled, mock_get_api_session):
     authz_api = provider.settings.get('authz_api')
     test_uri = f'{authz_api}/api/v1.0/Identity/1'
 
@@ -59,8 +64,7 @@ def test_get_identity_data_retry(flask_multipass_app, provider, mock_get_api_ses
     except requests.exceptions.HTTPError:
         assert len(httpretty.latest_requests()) == OIDC_RETRY_COUNT + 1
 
-
-def test_get_group_data_retry(flask_multipass_app, provider, mock_get_api_session, httpretty_enabled):
+def test_get_group_data_retry(flask_app, provider, httpretty_enabled, mock_get_api_session):
     authz_api = provider.settings.get('authz_api')
     test_uri = f'{authz_api}/api/v1.0/Group'
 
@@ -71,12 +75,13 @@ def test_get_group_data_retry(flask_multipass_app, provider, mock_get_api_sessio
         assert len(httpretty.latest_requests()) == OIDC_RETRY_COUNT + 1
 
 
-def test_fetch_all_retry(flask_multipass_app, provider, mock_get_api_session, httpretty_enabled):
+def test_fetch_all_retry(flask_app, provider, httpretty_enabled, mock_get_api_session):
     authz_api_base = provider.settings.get('authz_api')
     test_uri = '/api/v1.0/Identity'
 
-    httpretty.register_uri(httpretty.GET, f'{authz_api_base}{test_uri}', status=503)
-    try:
-        provider._fetch_all(mock_get_api_session.return_value, test_uri, {})
-    except requests.exceptions.HTTPError:
-        assert len(httpretty.latest_requests()) == OIDC_RETRY_COUNT + 1
+    with provider._get_api_session() as api_session:
+        httpretty.register_uri(httpretty.GET, f'{authz_api_base}{test_uri}', status=503)
+        try:
+            provider._fetch_all(api_session, test_uri, {})
+        except requests.exceptions.HTTPError:
+            assert len(httpretty.latest_requests()) == OIDC_RETRY_COUNT + 1
