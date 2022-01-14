@@ -3,10 +3,8 @@ import pytest
 import requests
 from flask import Flask
 from flask_multipass import Multipass
-from indico.core.cache import make_scoped_cache
-from requests.sessions import Session
 
-from flask_multipass_cern import OIDC_RETRY_COUNT, CERNIdentityProvider, retry_config
+from flask_multipass_cern import OIDC_RETRY_COUNT
 
 
 @pytest.fixture()
@@ -15,32 +13,6 @@ def flask_app():
     Multipass(app)
     with app.app_context():
         yield app
-
-
-@pytest.fixture()
-def httpretty_enabled():
-    with httpretty.enabled():
-        yield httpretty
-
-    httpretty.disable()
-
-
-@pytest.fixture()
-def mock_get_api_session(mocker):
-    mock_session = mocker.patch('flask_multipass_cern.CERNIdentityProvider._get_api_session')
-    mock_session.return_value = Session()
-    mock_session.return_value.mount('https://authorization-service-api.web.cern.ch', retry_config)
-
-    return mock_session
-
-
-@pytest.fixture()
-def provider():
-    settings = {
-        'authlib_args': {'client_id': 'test', 'client_secret': 'test'},
-        'cache': make_scoped_cache('flask-multipass-cern')
-    }
-    return CERNIdentityProvider(None, 'cip', settings)
 
 
 def test_get_identity_groups_retry(flask_app, provider, httpretty_enabled, mock_get_api_session):
@@ -63,6 +35,7 @@ def test_get_identity_data_retry(flask_app, provider, httpretty_enabled, mock_ge
         provider._get_identity_data(1)
     except requests.exceptions.HTTPError:
         assert len(httpretty.latest_requests()) == OIDC_RETRY_COUNT + 1
+
 
 def test_get_group_data_retry(flask_app, provider, httpretty_enabled, mock_get_api_session):
     authz_api = provider.settings.get('authz_api')

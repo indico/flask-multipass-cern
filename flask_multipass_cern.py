@@ -5,6 +5,7 @@
 # it and/or modify it under the terms of the MIT License; see
 # the LICENSE file for more details.
 
+from datetime import datetime
 from functools import wraps
 from importlib import import_module
 from inspect import getcallargs
@@ -17,11 +18,18 @@ from flask_multipass.group import Group
 from flask_multipass.identity import IdentityProvider
 from flask_multipass.providers.authlib import AuthlibAuthProvider, _authlib_oauth
 from requests.adapters import HTTPAdapter
+from requests.exceptions import HTTPError
 from urllib3 import Retry
 
+from indico.core.logger import Logger
 
+
+CACHE_LONG_TTL = 172800
+CACHE_TTL = 1800
 CERN_OIDC_WELLKNOWN_URL = 'https://auth.cern.ch/auth/realms/cern/.well-known/openid-configuration'
 OIDC_RETRY_COUNT = 5
+
+_logger = Logger.get('cache')
 retry_config = HTTPAdapter(max_retries=Retry(
                            total=OIDC_RETRY_COUNT,
                            status_forcelist=[503, 504],
@@ -106,10 +114,18 @@ class CERNGroup(Group):
     def has_member(self, identifier):
         cache_key = f'flask-multipass-cern:{self.provider.name}:groups:{identifier}'
         all_groups = self.provider.cache and self.provider.cache.get(cache_key)
+        should_refresh = self.provider.cache and self.provider.cache.get(f'{cache_key}:timestamp') is None
+        if all_groups is None or should_refresh:
+            try:
+                all_groups = {g.name.lower() for g in self.provider.get_identity_groups(identifier)}
+                if self.provider.cache:
+                    self.provider.cache.set(cache_key, all_groups, timeout=CACHE_LONG_TTL)
+                    self.provider.cache.set(f'{cache_key}:timestamp', datetime.now(), timeout=CACHE_TTL)
+            except HTTPError as err:
+                _logger.exception(err)
+
         if all_groups is None:
-            all_groups = {g.name.lower() for g in self.provider.get_identity_groups(identifier)}
-            if self.provider.cache:
-                self.provider.cache.set(cache_key, all_groups, 1800)
+            return False
         if self.provider.settings['cern_users_group'] and self.name.lower() == 'cern users':
             return self.provider.settings['cern_users_group'].lower() in all_groups
         return self.name.lower() in all_groups
@@ -187,7 +203,8 @@ class CERNIdentityProvider(IdentityProvider):
         if groups is not None and self.cache:
             groups = {x.lower() for x in groups}
             cache_key = f'flask-multipass-cern:{self.name}:groups:{data["upn"]}'
-            self.cache.set(cache_key, groups, 1800)
+            self.cache.set(cache_key, groups, timeout=CACHE_LONG_TTL)
+            self.cache.set(f'{cache_key}:timestamp', datetime.now(), timeout=CACHE_TTL)
         self._fix_phone(data)
         identifier = data.pop('upn')
         extra_data = self._extract_extra_data(data)
@@ -275,7 +292,7 @@ class CERNIdentityProvider(IdentityProvider):
 
     def get_identity_groups(self, identifier):
         with self._get_api_session() as api_session:
-            resp = api_session.get(f'{self.authz_api_base}/api/v1.0/IdentityMembership/{identifier}/precomputed', )
+            resp = api_session.get(f'{self.authz_api_base}/api/v1.0/IdentityMembership/{identifier}/precomputed')
             if resp.status_code == 404 or resp.status_code == 500:
                 return set()
             resp.raise_for_status()
