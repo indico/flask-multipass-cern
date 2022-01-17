@@ -1,23 +1,22 @@
 from datetime import datetime
 from unittest.mock import MagicMock
 
-import httpretty
 import pytest
 from requests import Session
-
-from indico.core.cache import IndicoCache
+from requests.exceptions import HTTPError
 
 from flask_multipass_cern import CERNGroup
+from tests.conftest import MemoryCache
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_get_api_session(mocker):
     get_api_session = mocker.patch('flask_multipass_cern.CERNIdentityProvider._get_api_session')
     get_api_session.return_value = Session()
     return get_api_session
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_get_identity_groups(mocker):
     get_identity_groups = mocker.patch('flask_multipass_cern.CERNIdentityProvider.get_identity_groups')
     group = MagicMock()
@@ -26,9 +25,16 @@ def mock_get_identity_groups(mocker):
     return get_identity_groups
 
 
-@pytest.fixture()
-def mock_cache_set(mocker):
-    return mocker.spy(IndicoCache, 'set')
+@pytest.fixture
+def mock_get_identity_groups_fail(mocker):
+    get_identity_groups = mocker.patch('flask_multipass_cern.CERNIdentityProvider.get_identity_groups')
+    get_identity_groups.side_effect = HTTPError()
+    return get_identity_groups
+
+
+@pytest.fixture
+def spy_cache_set(mocker):
+    return mocker.spy(MemoryCache, 'set')
 
 
 def test_has_member_cache(provider, mock_get_identity_groups):
@@ -39,11 +45,11 @@ def test_has_member_cache(provider, mock_get_identity_groups):
     assert(test_group.provider.cache.get('flask-multipass-cern:cip:groups:12345:timestamp'))
 
 
-def test_has_member_cache_miss(provider, mock_get_identity_groups, mock_cache_set):
+def test_has_member_cache_miss(provider, mock_get_identity_groups, spy_cache_set):
     test_group = CERNGroup(provider, 'cern users')
     test_group.has_member('12345')
 
-    assert mock_cache_set.call_count == 2
+    assert spy_cache_set.call_count == 2
 
 
 def test_has_member_cache_hit(provider, mock_get_identity_groups):
@@ -55,11 +61,9 @@ def test_has_member_cache_hit(provider, mock_get_identity_groups):
     assert not mock_get_identity_groups.called
 
 
-def test_has_member_request_returns_503(provider, httpretty_enabled, mock_get_api_session):
+def test_has_member_request_fails(provider, mock_get_api_session, mock_get_identity_groups_fail):
     test_group = CERNGroup(provider, 'cern users')
-    authz_api = provider.settings.get('authz_api')
-    test_uri = f'{authz_api}/api/v1.0/IdentityMembership/12345/precomputed'
+    res = test_group.has_member('12345')
 
-    httpretty.register_uri(httpretty.GET, test_uri, status=503)
-
-    test_group.has_member('12345')
+    assert mock_get_identity_groups_fail.called
+    assert res == False

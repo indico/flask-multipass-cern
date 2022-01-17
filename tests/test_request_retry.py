@@ -7,7 +7,7 @@ from flask_multipass import Multipass
 from flask_multipass_cern import OIDC_RETRY_COUNT
 
 
-@pytest.fixture()
+@pytest.fixture
 def flask_app():
     app = Flask('test')
     Multipass(app)
@@ -18,8 +18,8 @@ def flask_app():
 def test_get_identity_groups_retry(flask_app, provider, httpretty_enabled, mock_get_api_session):
     authz_api = provider.settings.get('authz_api')
     test_uri = f'{authz_api}/api/v1.0/IdentityMembership/1/precomputed'
-
     httpretty.register_uri(httpretty.GET, test_uri, status=503)
+
     try:
         provider.get_identity_groups(1)
     except requests.exceptions.HTTPError:
@@ -29,8 +29,8 @@ def test_get_identity_groups_retry(flask_app, provider, httpretty_enabled, mock_
 def test_get_identity_data_retry(flask_app, provider, httpretty_enabled, mock_get_api_session):
     authz_api = provider.settings.get('authz_api')
     test_uri = f'{authz_api}/api/v1.0/Identity/1'
-
     httpretty.register_uri(httpretty.GET, test_uri, status=503)
+
     try:
         provider._get_identity_data(1)
     except requests.exceptions.HTTPError:
@@ -40,8 +40,8 @@ def test_get_identity_data_retry(flask_app, provider, httpretty_enabled, mock_ge
 def test_get_group_data_retry(flask_app, provider, httpretty_enabled, mock_get_api_session):
     authz_api = provider.settings.get('authz_api')
     test_uri = f'{authz_api}/api/v1.0/Group'
-
     httpretty.register_uri(httpretty.GET, test_uri, status=503)
+
     try:
         provider._get_group_data('mygroup')
     except requests.exceptions.HTTPError:

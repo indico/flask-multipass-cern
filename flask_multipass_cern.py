@@ -5,6 +5,7 @@
 # it and/or modify it under the terms of the MIT License; see
 # the LICENSE file for more details.
 
+import logging
 from datetime import datetime
 from functools import wraps
 from importlib import import_module
@@ -21,15 +22,12 @@ from requests.adapters import HTTPAdapter
 from requests.exceptions import HTTPError
 from urllib3 import Retry
 
-from indico.core.logger import Logger
-
 
 CACHE_LONG_TTL = 172800
 CACHE_TTL = 1800
 CERN_OIDC_WELLKNOWN_URL = 'https://auth.cern.ch/auth/realms/cern/.well-known/openid-configuration'
 OIDC_RETRY_COUNT = 5
 
-_logger = Logger.get('cache')
 retry_config = HTTPAdapter(max_retries=Retry(
                            total=OIDC_RETRY_COUNT,
                            status_forcelist=[503, 504],
@@ -115,17 +113,20 @@ class CERNGroup(Group):
         cache_key = f'flask-multipass-cern:{self.provider.name}:groups:{identifier}'
         all_groups = self.provider.cache and self.provider.cache.get(cache_key)
         should_refresh = self.provider.cache and self.provider.cache.get(f'{cache_key}:timestamp') is None
+
         if all_groups is None or should_refresh:
             try:
                 all_groups = {g.name.lower() for g in self.provider.get_identity_groups(identifier)}
                 if self.provider.cache:
                     self.provider.cache.set(cache_key, all_groups, timeout=CACHE_LONG_TTL)
                     self.provider.cache.set(f'{cache_key}:timestamp', datetime.now(), timeout=CACHE_TTL)
-            except HTTPError as err:
-                _logger.exception(err)
+            except HTTPError as error:
+                logger = logging.getLogger(self.provider.settings['logger_name'])
+                if all_groups is None:
+                    logger.exception(f'Get user groups failed, access will be denied: {error}')
+                    return False
+                logger.exception(f'Refresh user groups failed: {error}')
 
-        if all_groups is None:
-            return False
         if self.provider.settings['cern_users_group'] and self.name.lower() == 'cern users':
             return self.provider.settings['cern_users_group'].lower() in all_groups
         return self.name.lower() in all_groups
@@ -148,6 +149,7 @@ class CERNIdentityProvider(IdentityProvider):
         self.settings.setdefault('authz_api', 'https://authorization-service-api.web.cern.ch')
         self.settings.setdefault('phone_prefix', '+412276')
         self.settings.setdefault('cern_users_group', None)
+        self.settings.setdefault('logger_name', 'multipass.cern')
         self.cache = self._init_cache()
         if not self.settings.get('mapping'):
             # usually mapping is empty, in that case we set some defaults
