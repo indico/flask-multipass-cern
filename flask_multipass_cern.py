@@ -33,6 +33,7 @@ retry_config = HTTPAdapter(max_retries=Retry(
                            status_forcelist=[503, 504],
                            allowed_methods=frozenset(['GET']),
                            raise_on_status=False))
+_cache_miss = object()
 
 
 def memoize_request(f):
@@ -120,12 +121,12 @@ class CERNGroup(Group):
                 if self.provider.cache:
                     self.provider.cache.set(cache_key, all_groups, timeout=CACHE_LONG_TTL)
                     self.provider.cache.set(f'{cache_key}:timestamp', datetime.now(), timeout=CACHE_TTL)
-            except HTTPError as error:
+            except HTTPError:
                 logger = logging.getLogger(self.provider.settings['logger_name'])
                 if all_groups is None:
-                    logger.exception(f'Get user groups failed, access will be denied: {error}')
+                    logger.exception('Get user groups failed, access will be denied')
                     return False
-                logger.exception(f'Refresh user groups failed: {error}')
+                logger.exception('Refresh user groups failed')
 
         if self.provider.settings['cern_users_group'] and self.name.lower() == 'cern users':
             return self.provider.settings['cern_users_group'].lower() in all_groups
@@ -196,21 +197,53 @@ class CERNIdentityProvider(IdentityProvider):
             return
         data['telephone1'] = self.settings['phone_prefix'] + phone
 
-    def _extract_extra_data(self, data):
-        return {'cern_person_id': data.pop('cernPersonId', None)}
+    def _extract_extra_data(self, data, default=None):
+        return {'cern_person_id': data.pop('cernPersonId', default)}
 
     def get_identity_from_auth(self, auth_info):
-        data = self._fetch_identity_data(auth_info)
+        upn = auth_info.data.get('cern_upn')
         groups = auth_info.data.get('groups')
+        cache_key_prefix = f'flask-multipass-cern:{self.name}'
+
         if groups is not None and self.cache:
             groups = {x.lower() for x in groups}
-            cache_key = f'flask-multipass-cern:{self.name}:groups:{data["upn"]}'
+            cache_key = f'{cache_key_prefix}:groups:{upn}'
             self.cache.set(cache_key, groups, timeout=CACHE_LONG_TTL)
             self.cache.set(f'{cache_key}:timestamp', datetime.now(), timeout=CACHE_TTL)
+
+        try:
+            data = self._fetch_identity_data(auth_info)
+
+            if self.cache:
+                phone = data.get('telephone1', None)
+                affiliation = data.get('instituteName', None)
+                self.cache.set(f'{cache_key_prefix}:phone:{upn}', phone, timeout=CACHE_LONG_TTL)
+                self.cache.set(f'{cache_key_prefix}:affiliation:{upn}', affiliation, timeout=CACHE_LONG_TTL)
+
+        except HTTPError:
+            logger = logging.getLogger(self.settings['logger_name'])
+            logger.exception('Get identity data failed')
+
+            phone = self.cache.get(f'{cache_key_prefix}:phone:{upn}', _cache_miss)
+            affiliation = self.cache.get(f'{cache_key_prefix}:affiliation:{upn}', _cache_miss)
+
+            if phone is _cache_miss or affiliation is _cache_miss:
+                raise
+
+            data = {
+                'firstName': auth_info.data['given_name'],
+                'lastName': auth_info.data['family_name'],
+                'displayName': auth_info.data['name'],
+                'telephone1': phone,
+                'instituteName': affiliation,
+                'primaryAccountEmail': auth_info.data['email'],
+            }
+
         self._fix_phone(data)
-        identifier = data.pop('upn')
-        extra_data = self._extract_extra_data(data)
-        return IdentityInfo(self, identifier, extra_data, **data)
+        data.pop('upn', None)
+        extra_data = self._extract_extra_data(data, auth_info.data['cern_person_id'])
+
+        return IdentityInfo(self, upn, extra_data, **data)
 
     def search_identities(self, criteria, exact=False):
         return iter(self.search_identities_ex(criteria, exact=exact)[0])
