@@ -1,13 +1,13 @@
 from unittest.mock import MagicMock
 
 import pytest
-from requests.exceptions import HTTPError
+from requests.exceptions import RequestException
 
 
 @pytest.fixture
 def mock_fetch_identity_data_fail(mocker):
     fetch_identity_data = mocker.patch('flask_multipass_cern.CERNIdentityProvider._fetch_identity_data')
-    fetch_identity_data.side_effect = HTTPError()
+    fetch_identity_data.side_effect = RequestException()
     return fetch_identity_data
 
 
@@ -26,7 +26,7 @@ def auth_info():
 
 
 def test_fetch_identity_data_fails_cache_miss(provider, auth_info, mock_fetch_identity_data_fail):
-    with pytest.raises(HTTPError):
+    with pytest.raises(RequestException):
         provider.get_identity_from_auth(auth_info)
 
 

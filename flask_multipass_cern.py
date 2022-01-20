@@ -19,7 +19,7 @@ from flask_multipass.group import Group
 from flask_multipass.identity import IdentityProvider
 from flask_multipass.providers.authlib import AuthlibAuthProvider, _authlib_oauth
 from requests.adapters import HTTPAdapter
-from requests.exceptions import HTTPError
+from requests.exceptions import RequestException
 from urllib3 import Retry
 
 
@@ -120,10 +120,10 @@ class CERNGroup(Group):
                 if self.provider.cache:
                     self.provider.cache.set(cache_key, all_groups, timeout=CACHE_LONG_TTL)
                     self.provider.cache.set(f'{cache_key}:timestamp', datetime.now(), timeout=CACHE_TTL)
-            except HTTPError:
-                self.provider.logger.exception('Refresh user groups failed')
+            except RequestException:
+                self.provider.logger.exception('Refreshing user groups failed')
                 if all_groups is None:
-                    self.provider.logger.warning('Get user groups failed, access will be denied')
+                    self.provider.logger.warning('Getting user groups failed, access will be denied')
                     return False
 
         if self.provider.settings['cern_users_group'] and self.name.lower() == 'cern users':
@@ -222,8 +222,8 @@ class CERNIdentityProvider(IdentityProvider):
                 self.cache.set(f'{cache_key_prefix}:phone:{upn}', phone, timeout=CACHE_LONG_TTL)
                 self.cache.set(f'{cache_key_prefix}:affiliation:{upn}', affiliation, timeout=CACHE_LONG_TTL)
 
-        except HTTPError:
-            self.logger.exception('Get identity data failed')
+        except RequestException:
+            self.logger.exception('Getting identity data failed')
 
             phone = self.cache.get(f'{cache_key_prefix}:phone:{upn}', _cache_miss)
             affiliation = self.cache.get(f'{cache_key_prefix}:affiliation:{upn}', _cache_miss)
