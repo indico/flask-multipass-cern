@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from requests import Session
-from requests.exceptions import HTTPError
+from requests.exceptions import RequestException
 
 from flask_multipass_cern import CERNGroup
 from tests.conftest import MemoryCache
@@ -28,7 +28,7 @@ def mock_get_identity_groups(mocker):
 @pytest.fixture
 def mock_get_identity_groups_fail(mocker):
     get_identity_groups = mocker.patch('flask_multipass_cern.CERNIdentityProvider.get_identity_groups')
-    get_identity_groups.side_effect = HTTPError()
+    get_identity_groups.side_effect = RequestException()
     return get_identity_groups
 
 
