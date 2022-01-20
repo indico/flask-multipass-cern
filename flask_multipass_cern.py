@@ -121,9 +121,9 @@ class CERNGroup(Group):
                     self.provider.cache.set(cache_key, all_groups, timeout=CACHE_LONG_TTL)
                     self.provider.cache.set(f'{cache_key}:timestamp', datetime.now(), timeout=CACHE_TTL)
             except RequestException:
-                self.provider.logger.exception('Refreshing user groups failed')
+                self.provider.logger.warning('Refreshing user groups failed for %s', identifier)
                 if all_groups is None:
-                    self.provider.logger.warning('Getting user groups failed, access will be denied')
+                    self.provider.logger.error('Getting user groups failed for %s, access will be denied', identifier)
                     return False
 
         if self.provider.settings['cern_users_group'] and self.name.lower() == 'cern users':
@@ -223,7 +223,7 @@ class CERNIdentityProvider(IdentityProvider):
                 self.cache.set(f'{cache_key_prefix}:affiliation:{upn}', affiliation, timeout=CACHE_LONG_TTL)
 
         except RequestException:
-            self.logger.exception('Getting identity data failed')
+            self.logger.exception('Getting identity data for %s failed', upn)
 
             phone = self.cache.get(f'{cache_key_prefix}:phone:{upn}', _cache_miss)
             affiliation = self.cache.get(f'{cache_key_prefix}:affiliation:{upn}', _cache_miss)
