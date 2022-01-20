@@ -242,7 +242,7 @@ class CERNIdentityProvider(IdentityProvider):
 
         self._fix_phone(data)
         data.pop('upn', None)
-        extra_data = self._extract_extra_data(data, auth_info.data['cern_person_id'])
+        extra_data = self._extract_extra_data(data, str(auth_info.data['cern_person_id']))
 
         return IdentityInfo(self, upn, extra_data, **data)
 
@@ -469,8 +469,8 @@ class CERNIdentityProvider(IdentityProvider):
         ]
 
         for token_field, api_field in fields_to_compare:
-            token_value = token_data[token_field]
-            api_value = api_data[api_field]
+            token_value = str(token_data.get(token_field, ''))
+            api_value = str(api_data.get(api_field, ''))
             if token_value != api_value:
-                self.logger.warning('field %s mismatch: %s in id_token, %s in authz api',
-                                    token_field, token_value, api_value)
+                self.logger.warning('Field %s mismatch for %s: %s in id_token, %s in authz api',
+                                    token_field, token_data['sub'], token_value, api_value)
