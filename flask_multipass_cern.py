@@ -251,18 +251,21 @@ class CERNIdentityProvider(IdentityProvider):
 
     @memoize_request
     def search_identities_ex(self, criteria, exact=False, limit=None):
+        emails_key = '-'.join(sorted(x.lower() for x in criteria['primaryAccountEmail']))
+        cache_key = f'flask-multipass-cern:{self.name}:email-identities:{emails_key}'
+        should_refresh = self.cache and self.cache.get(f'{cache_key}:timestamp') is None
         use_cache = self.cache and exact and limit is None and len(criteria) == 1 and 'primaryAccountEmail' in criteria
+
         if use_cache:
-            emails_key = '-'.join(sorted(x.lower() for x in criteria['primaryAccountEmail']))
-            cache_key = f'flask-multipass-cern:{self.name}:email-identities:{emails_key}'
             cached_data = self.cache.get(cache_key)
             if cached_data:
-                results = []
+                cached_results = []
                 for res in cached_data[0]:
                     identifier = res.pop('upn')
                     extra_data = self._extract_extra_data(res)
-                    results.append(IdentityInfo(self, identifier, extra_data, **res))
-                return results, cached_data[1]
+                    cached_results.append(IdentityInfo(self, identifier, extra_data, **res))
+                if not should_refresh:
+                    return cached_results, cached_data[1]
 
         if any(len(x) != 1 for x in criteria.values()):
             # Unfortunately the API does not support OR filters (yet?).
@@ -306,7 +309,13 @@ class CERNIdentityProvider(IdentityProvider):
         }
 
         with self._get_api_session() as api_session:
-            results, total = self._fetch_all(api_session, '/api/v1.0/Identity', params, limit=limit)
+            results = []
+            total = 0
+            try:
+                results, total = self._fetch_all(api_session, '/api/v1.0/Identity', params, limit=limit)
+            except RequestException:
+                if cached_results:
+                    return cached_results, cached_data[1]
 
         identities = []
         cache_data = []
@@ -322,8 +331,10 @@ class CERNIdentityProvider(IdentityProvider):
             identities.append(IdentityInfo(self, identifier, extra_data, **res_copy))
             if use_cache:
                 cache_data.append(res)
+
         if use_cache:
-            self.cache.set(cache_key, (cache_data, total), 3600)
+            self.cache.set(cache_key, (cache_data, total), CACHE_LONG_TTL)
+            self.cache.set(f'{cache_key}:timestamp', datetime.now(), timeout=CACHE_TTL * 2)
         return identities, total
 
     def get_identity_groups(self, identifier):
