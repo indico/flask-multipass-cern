@@ -4,7 +4,7 @@ import requests
 from flask import Flask
 from flask_multipass import Multipass
 
-from flask_multipass_cern import OIDC_RETRY_COUNT
+from flask_multipass_cern import HTTP_RETRY_COUNT
 
 
 @pytest.fixture
@@ -23,7 +23,7 @@ def test_get_identity_groups_retry(flask_app, provider, httpretty_enabled, mock_
     try:
         provider.get_identity_groups(1)
     except requests.exceptions.HTTPError:
-        assert len(httpretty.latest_requests()) == OIDC_RETRY_COUNT + 1
+        assert len(httpretty.latest_requests()) == HTTP_RETRY_COUNT + 1
 
 
 def test_get_identity_data_retry(flask_app, provider, httpretty_enabled, mock_get_api_session):
@@ -34,7 +34,7 @@ def test_get_identity_data_retry(flask_app, provider, httpretty_enabled, mock_ge
     try:
         provider._get_identity_data(1)
     except requests.exceptions.HTTPError:
-        assert len(httpretty.latest_requests()) == OIDC_RETRY_COUNT + 1
+        assert len(httpretty.latest_requests()) == HTTP_RETRY_COUNT + 1
 
 
 def test_get_group_data_retry(flask_app, provider, httpretty_enabled, mock_get_api_session):
@@ -45,7 +45,7 @@ def test_get_group_data_retry(flask_app, provider, httpretty_enabled, mock_get_a
     try:
         provider._get_group_data('mygroup')
     except requests.exceptions.HTTPError:
-        assert len(httpretty.latest_requests()) == OIDC_RETRY_COUNT + 1
+        assert len(httpretty.latest_requests()) == HTTP_RETRY_COUNT + 1
 
 
 def test_fetch_all_retry(flask_app, provider, httpretty_enabled, mock_get_api_session):
@@ -57,4 +57,4 @@ def test_fetch_all_retry(flask_app, provider, httpretty_enabled, mock_get_api_se
         try:
             provider._fetch_all(api_session, test_uri, {})
         except requests.exceptions.HTTPError:
-            assert len(httpretty.latest_requests()) == OIDC_RETRY_COUNT + 1
+            assert len(httpretty.latest_requests()) == HTTP_RETRY_COUNT + 1

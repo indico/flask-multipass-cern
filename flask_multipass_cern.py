@@ -23,16 +23,15 @@ from requests.exceptions import HTTPError
 from urllib3 import Retry
 
 
-CACHE_LONG_TTL = 172800
+CACHE_LONG_TTL = 86400 * 2
 CACHE_TTL = 1800
 CERN_OIDC_WELLKNOWN_URL = 'https://auth.cern.ch/auth/realms/cern/.well-known/openid-configuration'
-OIDC_RETRY_COUNT = 5
+HTTP_RETRY_COUNT = 5
 
-retry_config = HTTPAdapter(max_retries=Retry(
-                           total=OIDC_RETRY_COUNT,
-                           status_forcelist=[503, 504],
-                           allowed_methods=frozenset(['GET']),
-                           raise_on_status=False))
+retry_config = HTTPAdapter(max_retries=Retry(total=HTTP_RETRY_COUNT,
+                                             status_forcelist=[503, 504],
+                                             allowed_methods=frozenset(['GET']),
+                                             raise_on_status=False))
 _cache_miss = object()
 
 
@@ -122,11 +121,10 @@ class CERNGroup(Group):
                     self.provider.cache.set(cache_key, all_groups, timeout=CACHE_LONG_TTL)
                     self.provider.cache.set(f'{cache_key}:timestamp', datetime.now(), timeout=CACHE_TTL)
             except HTTPError:
-                logger = logging.getLogger(self.provider.settings['logger_name'])
+                self.provider.logger.exception('Refresh user groups failed')
                 if all_groups is None:
-                    logger.exception('Get user groups failed, access will be denied')
+                    self.provider.logger.warning('Get user groups failed, access will be denied')
                     return False
-                logger.exception('Refresh user groups failed')
 
         if self.provider.settings['cern_users_group'] and self.name.lower() == 'cern users':
             return self.provider.settings['cern_users_group'].lower() in all_groups
@@ -151,6 +149,7 @@ class CERNIdentityProvider(IdentityProvider):
         self.settings.setdefault('phone_prefix', '+412276')
         self.settings.setdefault('cern_users_group', None)
         self.settings.setdefault('logger_name', 'multipass.cern')
+        self.logger = logging.getLogger(self.settings['logger_name'])
         self.cache = self._init_cache()
         if not self.settings.get('mapping'):
             # usually mapping is empty, in that case we set some defaults
@@ -201,7 +200,7 @@ class CERNIdentityProvider(IdentityProvider):
         return {'cern_person_id': data.pop('cernPersonId', default)}
 
     def get_identity_from_auth(self, auth_info):
-        upn = auth_info.data.get('cern_upn')
+        upn = auth_info.data.get('sub')
         groups = auth_info.data.get('groups')
         cache_key_prefix = f'flask-multipass-cern:{self.name}'
 
@@ -214,15 +213,17 @@ class CERNIdentityProvider(IdentityProvider):
         try:
             data = self._fetch_identity_data(auth_info)
 
+            # check for data mismatches between our id token and authz
+            self._compare_data(auth_info.data, data)
+
             if self.cache:
-                phone = data.get('telephone1', None)
-                affiliation = data.get('instituteName', None)
+                phone = data.get('telephone1')
+                affiliation = data.get('instituteName')
                 self.cache.set(f'{cache_key_prefix}:phone:{upn}', phone, timeout=CACHE_LONG_TTL)
                 self.cache.set(f'{cache_key_prefix}:affiliation:{upn}', affiliation, timeout=CACHE_LONG_TTL)
 
         except HTTPError:
-            logger = logging.getLogger(self.settings['logger_name'])
-            logger.exception('Get identity data failed')
+            self.logger.exception('Get identity data failed')
 
             phone = self.cache.get(f'{cache_key_prefix}:phone:{upn}', _cache_miss)
             affiliation = self.cache.get(f'{cache_key_prefix}:affiliation:{upn}', _cache_miss)
@@ -457,3 +458,19 @@ class CERNIdentityProvider(IdentityProvider):
             resp.raise_for_status()
             data = resp.json()
         return data['data']
+
+    def _compare_data(self, token_data, api_data):
+        fields_to_compare = [
+            ('sub', 'upn'),
+            ('given_name', 'firstName'),
+            ('family_name', 'lastName'),
+            ('email', 'primaryAccountEmail'),
+            ('cern_person_id', 'cernPersonId'),
+        ]
+
+        for token_field, api_field in fields_to_compare:
+            token_value = token_data[token_field]
+            api_value = api_data[api_field]
+            if token_value != api_value:
+                self.logger.warning('field %s mismatch: %s in id_token, %s in authz api',
+                                    token_field, token_value, api_value)
