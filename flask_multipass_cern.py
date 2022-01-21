@@ -335,7 +335,7 @@ class CERNIdentityProvider(IdentityProvider):
                 results, total = self._fetch_all(api_session, '/api/v1.0/Identity', params, limit=limit)
             except RequestException:
                 self.logger.warning('Refreshing identities failed for criteria %s', criteria)
-                if use_cache and cached_data and cached_results:
+                if use_cache and cached_data:
                     return cached_results, cached_data[1]
                 else:
                     self.logger.error('Getting identities failed for criteria %s', criteria)
