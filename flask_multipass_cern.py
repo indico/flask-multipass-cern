@@ -13,6 +13,7 @@ from inspect import getcallargs
 
 from authlib.integrations.requests_client import OAuth2Session
 from flask import current_app, g, has_request_context
+from flask_multipass import IdentityRetrievalFailed
 from flask_multipass.data import IdentityInfo
 from flask_multipass.exceptions import MultipassException
 from flask_multipass.group import Group
@@ -242,13 +243,14 @@ class CERNIdentityProvider(IdentityProvider):
             self.cache.set(f'{cache_key_prefix}:affiliation:{upn}', affiliation, CACHE_LONG_TTL)
 
         except RequestException:
-            self.logger.exception('Getting identity data for %s failed', upn)
+            self.logger.warning('Getting identity data for %s failed', upn)
 
             phone = self.cache.get(f'{cache_key_prefix}:phone:{upn}', _cache_miss)
             affiliation = self.cache.get(f'{cache_key_prefix}:affiliation:{upn}', _cache_miss)
 
             if phone is _cache_miss or affiliation is _cache_miss:
-                raise
+                self.logger.error('Getting identity data for %s failed without cache fallback', upn)
+                raise IdentityRetrievalFailed('Retrieving identity information from CERN SSO failed', provider=self)
 
             data = {
                 'firstName': auth_info.data['given_name'],
