@@ -34,17 +34,6 @@ def mock_data():
     }
 
 
-@pytest.fixture
-def mock_data_map():
-    return {
-        'primaryAccountEmail': 'email',
-        'lastName': 'last_name',
-        'firstName': 'first_name',
-        'instituteName': 'affiliation',
-        'telephone1': 'phone',
-    }
-
-
 def test_search_identities_cache_miss(provider, mock_get_api_session, httpretty_enabled):
     test_uri = f'{provider.settings.get("authz_api")}/api/v1.0/Identity'
     httpretty.register_uri(httpretty.GET, test_uri, status=503)
@@ -52,12 +41,12 @@ def test_search_identities_cache_miss(provider, mock_get_api_session, httpretty_
         provider.search_identities_ex({'primaryAccountEmail': {'test@cern.ch'}}, True)
 
 
-def test_search_identities_cache_hit_fresh(provider, mock_data, mock_data_map):
+def test_search_identities_cache_hit_fresh(provider, mock_data):
     cache_key = 'flask-multipass-cern:cip:email-identities:test@cern.ch'
     provider.cache.set(cache_key, ([mock_data], 1), 2000, 2000)
     identities = provider.search_identities_ex({'primaryAccountEmail': {'test@cern.ch'}}, True)
 
-    for data_key, identities_key in mock_data_map.items():
+    for identities_key, data_key in provider.settings.get('mapping').items():
         assert mock_data[data_key] == identities[0][0].data.get(identities_key)
     assert isinstance(identities[0][0], IdentityInfo)
     assert identities[1] == 1
@@ -67,7 +56,6 @@ def test_search_identities_cache_hit_stale(
     provider,
     mock_get_api_session,
     mock_data,
-    mock_data_map,
     freeze_time,
     httpretty_enabled
 ):
@@ -79,7 +67,7 @@ def test_search_identities_cache_hit_stale(
 
     identities = provider.search_identities_ex({'primaryAccountEmail': {'test@cern.ch'}}, True)
 
-    for data_key, identities_key in mock_data_map.items():
+    for identities_key, data_key in provider.settings.get('mapping').items():
         assert mock_data[data_key] == identities[0][0].data.get(identities_key)
     assert isinstance(identities[0][0], IdentityInfo)
     assert identities[1] == 1
