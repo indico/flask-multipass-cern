@@ -4,11 +4,9 @@ on:
   push:
     branches:
       - master
-      - '*-maintenance'
   pull_request:
     branches:
       - master
-      - '*-maintenance'
 
 jobs:
   tests:
@@ -21,9 +19,6 @@ jobs:
         include:
           - { name: Style, python: '3.9', tox: style }
           - { name: '3.9', python: '3.9', tox: py39 }
-          - { name: '3.8', python: '3.8', tox: py38 }
-          - { name: '3.7', python: '3.7', tox: py37 }
-          - { name: '3.6', python: '3.6', tox: py36 }
 
     steps:
       - uses: actions/checkout@v2
@@ -31,9 +26,6 @@ jobs:
       - uses: actions/setup-python@v2
         with:
           python-version: ${{ matrix.python }}
-
-      - name: Install ldap deps
-        run: sudo apt-get install libsasl2-dev libldap2-dev libssl-dev
 
       - name: Update pip
         run: |
