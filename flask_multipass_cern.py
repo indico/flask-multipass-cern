@@ -6,9 +6,7 @@
 # the LICENSE file for more details.
 
 import logging
-from datetime import datetime
 from functools import wraps
-from importlib import import_module
 from inspect import getcallargs
 
 from authlib.integrations.requests_client import OAuth2Session
@@ -21,6 +19,8 @@ from flask_multipass.providers.authlib import AuthlibAuthProvider, _authlib_oaut
 from requests.adapters import HTTPAdapter
 from requests.exceptions import RequestException
 from urllib3 import Retry
+
+from extended_cache import ExtendedCache
 
 
 CACHE_LONG_TTL = 86400 * 2
@@ -110,20 +110,20 @@ class CERNGroup(Group):
             yield IdentityInfo(self.provider, identifier, extra_data, **res)
 
     def has_member(self, identifier):
+        cache = self.provider.cache
+        logger = self.provider.logger
         cache_key = f'flask-multipass-cern:{self.provider.name}:groups:{identifier}'
-        all_groups = self.provider.cache and self.provider.cache.get(cache_key)
-        should_refresh = self.provider.cache and self.provider.cache.get(f'{cache_key}:timestamp') is None
+        all_groups = cache and cache.get(cache_key)
 
-        if all_groups is None or should_refresh:
+        if all_groups is None or cache.should_refresh(cache_key):
             try:
                 all_groups = {g.name.lower() for g in self.provider.get_identity_groups(identifier)}
-                if self.provider.cache:
-                    self.provider.cache.set(cache_key, all_groups, timeout=CACHE_LONG_TTL)
-                    self.provider.cache.set(f'{cache_key}:timestamp', datetime.now(), timeout=CACHE_TTL)
+                if cache:
+                    cache.set(cache_key, all_groups, CACHE_LONG_TTL, CACHE_TTL)
             except RequestException:
-                self.provider.logger.warning('Refreshing user groups failed for %s', identifier)
+                logger.warning('Refreshing user groups failed for %s', identifier)
                 if all_groups is None:
-                    self.provider.logger.error('Getting user groups failed for %s, access will be denied', identifier)
+                    logger.error('Getting user groups failed for %s, access will be denied', identifier)
                     return False
 
         if self.provider.settings['cern_users_group'] and self.name.lower() == 'cern users':
@@ -150,7 +150,7 @@ class CERNIdentityProvider(IdentityProvider):
         self.settings.setdefault('cern_users_group', None)
         self.settings.setdefault('logger_name', 'multipass.cern')
         self.logger = logging.getLogger(self.settings['logger_name'])
-        self.cache = self._init_cache()
+        self.cache = ExtendedCache(self.settings['cache']) if self.settings['cache'] else None
         if not self.settings.get('mapping'):
             # usually mapping is empty, in that case we set some defaults
             self.settings['mapping'] = {
@@ -166,18 +166,6 @@ class CERNIdentityProvider(IdentityProvider):
         settings = dict(self.settings['authlib_args'])
         settings.setdefault('server_metadata_url', CERN_OIDC_WELLKNOWN_URL)
         return settings
-
-    def _init_cache(self):
-        if self.settings['cache'] is None:
-            return None
-        elif callable(self.settings['cache']):
-            return self.settings['cache']()
-        elif isinstance(self.settings['cache'], str):
-            module_path, class_name = self.settings['cache'].rsplit('.', 1)
-            module = import_module(module_path)
-            return getattr(module, class_name)
-        else:
-            return self.settings['cache']
 
     @property
     def authz_api_base(self):
@@ -207,8 +195,7 @@ class CERNIdentityProvider(IdentityProvider):
         if groups is not None and self.cache:
             groups = {x.lower() for x in groups}
             cache_key = f'{cache_key_prefix}:groups:{upn}'
-            self.cache.set(cache_key, groups, timeout=CACHE_LONG_TTL)
-            self.cache.set(f'{cache_key}:timestamp', datetime.now(), timeout=CACHE_TTL)
+            self.cache.set(cache_key, groups, CACHE_LONG_TTL, CACHE_TTL)
 
         try:
             data = self._fetch_identity_data(auth_info)
@@ -219,8 +206,8 @@ class CERNIdentityProvider(IdentityProvider):
             if self.cache:
                 phone = data.get('telephone1')
                 affiliation = data.get('instituteName')
-                self.cache.set(f'{cache_key_prefix}:phone:{upn}', phone, timeout=CACHE_LONG_TTL)
-                self.cache.set(f'{cache_key_prefix}:affiliation:{upn}', affiliation, timeout=CACHE_LONG_TTL)
+                self.cache.set(f'{cache_key_prefix}:phone:{upn}', phone, CACHE_LONG_TTL)
+                self.cache.set(f'{cache_key_prefix}:affiliation:{upn}', affiliation, CACHE_LONG_TTL)
 
         except RequestException:
             self.logger.exception('Getting identity data for %s failed', upn)
@@ -253,7 +240,6 @@ class CERNIdentityProvider(IdentityProvider):
     def search_identities_ex(self, criteria, exact=False, limit=None):
         emails_key = '-'.join(sorted(x.lower() for x in criteria['primaryAccountEmail']))
         cache_key = f'flask-multipass-cern:{self.name}:email-identities:{emails_key}'
-        should_refresh = self.cache and self.cache.get(f'{cache_key}:timestamp') is None
         use_cache = self.cache and exact and limit is None and len(criteria) == 1 and 'primaryAccountEmail' in criteria
 
         if use_cache:
@@ -264,7 +250,7 @@ class CERNIdentityProvider(IdentityProvider):
                     identifier = res.pop('upn')
                     extra_data = self._extract_extra_data(res)
                     cached_results.append(IdentityInfo(self, identifier, extra_data, **res))
-                if not should_refresh:
+                if not self.cache.should_refresh(cache_key):
                     return cached_results, cached_data[1]
 
         if any(len(x) != 1 for x in criteria.values()):
@@ -314,8 +300,12 @@ class CERNIdentityProvider(IdentityProvider):
             try:
                 results, total = self._fetch_all(api_session, '/api/v1.0/Identity', params, limit=limit)
             except RequestException:
-                if cached_results:
+                self.logger.warning('Refreshing identities failed for criteria %s', criteria)
+                if use_cache and cached_data and cached_results:
                     return cached_results, cached_data[1]
+                else:
+                    self.logger.error('Getting identities failed for criteria %s', criteria)
+                    raise
 
         identities = []
         cache_data = []
@@ -333,8 +323,7 @@ class CERNIdentityProvider(IdentityProvider):
                 cache_data.append(res)
 
         if use_cache:
-            self.cache.set(cache_key, (cache_data, total), CACHE_LONG_TTL)
-            self.cache.set(f'{cache_key}:timestamp', datetime.now(), timeout=CACHE_TTL * 2)
+            self.cache.set(cache_key, (cache_data, total), CACHE_LONG_TTL, CACHE_TTL * 2)
         return identities, total
 
     def get_identity_groups(self, identifier):
