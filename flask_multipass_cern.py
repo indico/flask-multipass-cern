@@ -6,7 +6,9 @@
 # the LICENSE file for more details.
 
 import logging
+from datetime import datetime
 from functools import wraps
+from importlib import import_module
 from inspect import getcallargs
 
 from authlib.integrations.requests_client import OAuth2Session
@@ -20,8 +22,6 @@ from requests.adapters import HTTPAdapter
 from requests.exceptions import RequestException
 from urllib3 import Retry
 
-from extended_cache import ExtendedCache
-
 
 CACHE_LONG_TTL = 86400 * 2
 CACHE_TTL = 1800
@@ -33,6 +33,40 @@ retry_config = HTTPAdapter(max_retries=Retry(total=HTTP_RETRY_COUNT,
                                              allowed_methods=frozenset(['GET']),
                                              raise_on_status=False))
 _cache_miss = object()
+
+
+class ExtendedCache:
+    def __init__(self, cache):
+        self.cache = self._init_cache(cache)
+
+    def _init_cache(self, cache):
+        if cache is None:
+            return None
+        elif callable(cache):
+            return cache()
+        elif isinstance(cache, str):
+            module_path, class_name = cache.rsplit('.', 1)
+            module = import_module(module_path)
+            return getattr(module, class_name)
+        else:
+            return cache
+
+    def get(self, key, default=None):
+        if self.cache is None:
+            return default
+        return self.cache.get(key, default)
+
+    def set(self, key, value, timeout=0, refresh_timeout=None):
+        if self.cache is None:
+            return
+        self.cache.set(key, value, timeout)
+        if refresh_timeout:
+            self.cache.set(f'{key}:timestamp', datetime.now(), refresh_timeout)
+
+    def should_refresh(self, key):
+        if self.cache is None:
+            return True
+        return self.cache.get(f'{key}:timestamp') is None
 
 
 def memoize_request(f):
@@ -113,13 +147,12 @@ class CERNGroup(Group):
         cache = self.provider.cache
         logger = self.provider.logger
         cache_key = f'flask-multipass-cern:{self.provider.name}:groups:{identifier}'
-        all_groups = cache and cache.get(cache_key)
+        all_groups = cache.get(cache_key)
 
         if all_groups is None or cache.should_refresh(cache_key):
             try:
                 all_groups = {g.name.lower() for g in self.provider.get_identity_groups(identifier)}
-                if cache:
-                    cache.set(cache_key, all_groups, CACHE_LONG_TTL, CACHE_TTL)
+                cache.set(cache_key, all_groups, CACHE_LONG_TTL, CACHE_TTL)
             except RequestException:
                 logger.warning('Refreshing user groups failed for %s', identifier)
                 if all_groups is None:
@@ -150,7 +183,7 @@ class CERNIdentityProvider(IdentityProvider):
         self.settings.setdefault('cern_users_group', None)
         self.settings.setdefault('logger_name', 'multipass.cern')
         self.logger = logging.getLogger(self.settings['logger_name'])
-        self.cache = ExtendedCache(self.settings['cache']) if self.settings['cache'] else None
+        self.cache = ExtendedCache(self.settings['cache'])
         if not self.settings.get('mapping'):
             # usually mapping is empty, in that case we set some defaults
             self.settings['mapping'] = {
@@ -192,7 +225,7 @@ class CERNIdentityProvider(IdentityProvider):
         groups = auth_info.data.get('groups')
         cache_key_prefix = f'flask-multipass-cern:{self.name}'
 
-        if groups is not None and self.cache:
+        if groups is not None:
             groups = {x.lower() for x in groups}
             cache_key = f'{cache_key_prefix}:groups:{upn}'
             self.cache.set(cache_key, groups, CACHE_LONG_TTL, CACHE_TTL)
@@ -203,11 +236,10 @@ class CERNIdentityProvider(IdentityProvider):
             # check for data mismatches between our id token and authz
             self._compare_data(auth_info.data, data)
 
-            if self.cache:
-                phone = data.get('telephone1')
-                affiliation = data.get('instituteName')
-                self.cache.set(f'{cache_key_prefix}:phone:{upn}', phone, CACHE_LONG_TTL)
-                self.cache.set(f'{cache_key_prefix}:affiliation:{upn}', affiliation, CACHE_LONG_TTL)
+            phone = data.get('telephone1')
+            affiliation = data.get('instituteName')
+            self.cache.set(f'{cache_key_prefix}:phone:{upn}', phone, CACHE_LONG_TTL)
+            self.cache.set(f'{cache_key_prefix}:affiliation:{upn}', affiliation, CACHE_LONG_TTL)
 
         except RequestException:
             self.logger.exception('Getting identity data for %s failed', upn)
@@ -240,7 +272,7 @@ class CERNIdentityProvider(IdentityProvider):
     def search_identities_ex(self, criteria, exact=False, limit=None):
         emails_key = '-'.join(sorted(x.lower() for x in criteria['primaryAccountEmail']))
         cache_key = f'flask-multipass-cern:{self.name}:email-identities:{emails_key}'
-        use_cache = self.cache and exact and limit is None and len(criteria) == 1 and 'primaryAccountEmail' in criteria
+        use_cache = exact and limit is None and len(criteria) == 1 and 'primaryAccountEmail' in criteria
 
         if use_cache:
             cached_data = self.cache.get(cache_key)
@@ -358,7 +390,7 @@ class CERNIdentityProvider(IdentityProvider):
     @memoize_request
     def _get_api_session(self):
         cache_key = f'flask-multipass-cern:{self.name}:api-token'
-        token = self.cache and self.cache.get(cache_key)
+        token = self.cache.get(cache_key)
         if token:
             oauth_session = OAuth2Session(token=token)
             oauth_session.mount(self.authz_api_base, retry_config)
@@ -376,8 +408,7 @@ class CERNIdentityProvider(IdentityProvider):
             audience='authorization-service-api',
             headers={'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
         )
-        if self.cache:
-            self.cache.set(cache_key, oauth_session.token, oauth_session.token['expires_in'] - 30)
+        self.cache.set(cache_key, oauth_session.token, oauth_session.token['expires_in'] - 30)
         return oauth_session
 
     def _fetch_identity_data(self, auth_info):

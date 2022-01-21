@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from extended_cache import ExtendedCache
+from flask_multipass_cern import ExtendedCache
 from tests.conftest import MemoryCache
 
 
@@ -10,6 +10,13 @@ from tests.conftest import MemoryCache
 def cache():
     cache = MemoryCache()
     return ExtendedCache(cache)
+
+
+def test_no_cache():
+    cache = ExtendedCache(None)
+    assert cache.set('foo', 'bar') is None
+    assert cache.get('foo', 'bar') == 'bar'
+    assert cache.should_refresh('foo') == True
 
 
 def test_timestamps(cache):
