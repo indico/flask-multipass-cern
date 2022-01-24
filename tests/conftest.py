@@ -10,7 +10,6 @@ from flask_multipass_cern import CERNIdentityProvider, retry_config
 
 class MemoryCacheEntry:
     def __init__(self, value, timeout=0):
-        print(f'creating entry with value {value}')
         self.value = value
         self.timeout = timeout if timeout else None
         self.timestamp = datetime.now()

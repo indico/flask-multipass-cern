@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock
 
 import pytest
+from flask_multipass import IdentityRetrievalFailed
 from requests.exceptions import RequestException
 
 
@@ -26,7 +27,7 @@ def auth_info():
 
 
 def test_fetch_identity_data_fails_cache_miss(provider, auth_info, mock_fetch_identity_data_fail):
-    with pytest.raises(RequestException):
+    with pytest.raises(IdentityRetrievalFailed):
         provider.get_identity_from_auth(auth_info)
 
 
@@ -39,8 +40,7 @@ def test_fetch_identity_data_fails_cache_hit(provider, auth_info, mock_fetch_ide
     assert all(k in result.data for k in ['first_name', 'last_name', 'email', 'phone', 'affiliation'])
 
 
-def test_fields_mismatch(provider, auth_info, mocker):
-    logger_spy = mocker.spy(provider.logger, 'warning')
+def test_fields_mismatch(provider, auth_info, caplog):
     mock_authz_data = {
         'upn': 'testupn1',
         'firstName': 'John',
@@ -51,4 +51,4 @@ def test_fields_mismatch(provider, auth_info, mocker):
 
     provider._compare_data(auth_info.data, mock_authz_data)
 
-    assert logger_spy.call_count == 5
+    assert len(caplog.records) == 5
