@@ -98,6 +98,21 @@ def make_hashable(obj):
     return obj
 
 
+def normalize_cern_person_id(value):
+    """Normalize the CERN person ID.
+
+    We always want a string or None if it's missing.
+    """
+    if value is None:
+        return None
+    elif isinstance(value, int):
+        return str(value)
+    elif not value:
+        return None
+    else:
+        return value
+
+
 class CERNAuthProvider(AuthlibAuthProvider):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -219,7 +234,7 @@ class CERNIdentityProvider(IdentityProvider):
         data['telephone1'] = self.settings['phone_prefix'] + phone
 
     def _extract_extra_data(self, data, default=None):
-        return {'cern_person_id': data.pop('cernPersonId', default)}
+        return {'cern_person_id': normalize_cern_person_id(data.pop('cernPersonId', default))}
 
     def get_identity_from_auth(self, auth_info):
         upn = auth_info.data.get('sub')
@@ -263,7 +278,7 @@ class CERNIdentityProvider(IdentityProvider):
 
         self._fix_phone(data)
         data.pop('upn', None)
-        extra_data = self._extract_extra_data(data, str(auth_info.data['cern_person_id']))
+        extra_data = self._extract_extra_data(data, normalize_cern_person_id(auth_info.data.get('cern_person_id')))
 
         return IdentityInfo(self, upn, extra_data, **data)
 
