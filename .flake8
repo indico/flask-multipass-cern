@@ -12,6 +12,7 @@ exclude =
     build
     dist
     .venv
+    .tox
 
 ignore =
     # don't require specific wrapping before/after binary operators
