@@ -287,7 +287,7 @@ class CERNIdentityProvider(IdentityProvider):
 
     @memoize_request
     def search_identities_ex(self, criteria, exact=False, limit=None):
-        emails_key = '-'.join(sorted(x.lower() for x in criteria['primaryAccountEmail']))
+        emails_key = '-'.join(sorted(x.lower() for x in criteria.get('primaryAccountEmail', ())))
         cache_key = f'flask-multipass-cern:{self.name}:email-identities:{emails_key}'
         use_cache = exact and limit is None and len(criteria) == 1 and 'primaryAccountEmail' in criteria
 
