@@ -6,7 +6,7 @@ from flask_multipass import IdentityInfo
 from requests import Session
 from requests.exceptions import RequestException
 
-from tests.conftest import MemoryCache, httpretty_enabled
+from tests.conftest import MemoryCache
 
 
 @pytest.fixture

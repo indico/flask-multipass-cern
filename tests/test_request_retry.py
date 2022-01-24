@@ -16,6 +16,7 @@ def test_get_identity_groups_retry(provider):
     except requests.exceptions.RequestException:
         assert len(httpretty.latest_requests()) == HTTP_RETRY_COUNT + 1
 
+
 @pytest.mark.usefixtures('httpretty_enabled', 'mock_get_api_session')
 def test_get_identity_data_retry(provider):
     authz_api = provider.settings.get('authz_api')
@@ -27,6 +28,7 @@ def test_get_identity_data_retry(provider):
     except requests.exceptions.RequestException:
         assert len(httpretty.latest_requests()) == HTTP_RETRY_COUNT + 1
 
+
 @pytest.mark.usefixtures('httpretty_enabled', 'mock_get_api_session')
 def test_get_group_data_retry(provider):
     authz_api = provider.settings.get('authz_api')
@@ -37,6 +39,7 @@ def test_get_group_data_retry(provider):
         provider._get_group_data('mygroup')
     except requests.exceptions.RequestException:
         assert len(httpretty.latest_requests()) == HTTP_RETRY_COUNT + 1
+
 
 @pytest.mark.usefixtures('httpretty_enabled', 'mock_get_api_session')
 def test_fetch_all_retry(provider):

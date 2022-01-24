@@ -16,7 +16,7 @@ def test_no_cache():
     cache = ExtendedCache(None)
     assert cache.set('foo', 'bar') is None
     assert cache.get('foo', 'bar') == 'bar'
-    assert cache.should_refresh('foo') == True
+    assert cache.should_refresh('foo')
 
 
 def test_timestamps(cache):
@@ -41,16 +41,16 @@ def test_timestamp(cache, freeze_time):
 
 def test_should_refresh_false(cache):
     cache.set('foo', 'bar', 2000, 10)
-    assert cache.should_refresh('foo') == False
+    assert not cache.should_refresh('foo')
 
 
 def test_should_refresh_true(cache, freeze_time):
     cache.set('foo', 'bar', 2000, 10)
     freeze_time(datetime.now() + timedelta(seconds=100))
 
-    assert cache.should_refresh('foo') == True
+    assert cache.should_refresh('foo')
 
 
 def test_should_refresh_miss(cache):
     should_refresh_miss = cache.should_refresh('miss')
-    assert should_refresh_miss == True
+    assert should_refresh_miss

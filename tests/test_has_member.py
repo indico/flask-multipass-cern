@@ -62,10 +62,11 @@ def test_has_member_cache_hit(provider, mock_get_identity_groups):
 
     assert not mock_get_identity_groups.called
 
+
 @pytest.mark.usefixtures('mock_get_identity_groups')
 def test_has_member_request_fails(provider, mock_get_identity_groups_fail):
     test_group = CERNGroup(provider, 'cern users')
     res = test_group.has_member('12345')
 
     assert mock_get_identity_groups_fail.called
-    assert res == False
+    assert res is False

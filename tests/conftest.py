@@ -16,6 +16,7 @@ class MemoryCacheEntry:
         self.timeout = timeout if timeout else None
         self.timestamp = datetime.now()
 
+
 class MemoryCache:
     """Simple dict-based in memory cache with expiration."""
 
