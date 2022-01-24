@@ -6,7 +6,7 @@ from flask_multipass import IdentityInfo
 from requests import Session
 from requests.exceptions import RequestException
 
-from tests.conftest import MemoryCache
+from tests.conftest import MemoryCache, httpretty_enabled
 
 
 @pytest.fixture
@@ -34,7 +34,8 @@ def mock_data():
     }
 
 
-def test_search_identities_cache_miss(provider, mock_get_api_session, httpretty_enabled):
+@pytest.mark.usefixtures('mock_get_api_session', 'httpretty_enabled')
+def test_search_identities_cache_miss(provider):
     test_uri = f'{provider.settings.get("authz_api")}/api/v1.0/Identity'
     httpretty.register_uri(httpretty.GET, test_uri, status=503)
     with pytest.raises(RequestException):
@@ -52,13 +53,8 @@ def test_search_identities_cache_hit_fresh(provider, mock_data):
     assert identities[1] == 1
 
 
-def test_search_identities_cache_hit_stale(
-    provider,
-    mock_get_api_session,
-    mock_data,
-    freeze_time,
-    httpretty_enabled
-):
+@pytest.mark.usefixtures('mock_get_api_session', 'httpretty_enabled')
+def test_search_identities_cache_hit_stale(provider, mock_data, freeze_time):
     test_uri = f'{provider.settings.get("authz_api")}/api/v1.0/Identity'
     httpretty.register_uri(httpretty.GET, test_uri, status=503)
     cache_key = 'flask-multipass-cern:cip:email-identities:test@cern.ch'

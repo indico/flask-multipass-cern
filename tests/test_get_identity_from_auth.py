@@ -26,12 +26,14 @@ def auth_info():
     return auth_info
 
 
-def test_fetch_identity_data_fails_cache_miss(provider, auth_info, mock_fetch_identity_data_fail):
+@pytest.mark.usefixtures('mock_fetch_identity_data_fail')
+def test_fetch_identity_data_fails_cache_miss(provider, auth_info):
     with pytest.raises(IdentityRetrievalFailed):
         provider.get_identity_from_auth(auth_info)
 
 
-def test_fetch_identity_data_fails_cache_hit(provider, auth_info, mock_fetch_identity_data_fail):
+@pytest.mark.usefixtures('mock_fetch_identity_data_fail')
+def test_fetch_identity_data_fails_cache_hit(provider, auth_info):
     provider.cache.set('flask-multipass-cern:cip:phone:testupn', '12341234')
     provider.cache.set('flask-multipass-cern:cip:affiliation:testupn', 'faketitute')
 

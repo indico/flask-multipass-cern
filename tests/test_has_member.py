@@ -37,7 +37,8 @@ def spy_cache_set(mocker):
     return mocker.spy(MemoryCache, 'set')
 
 
-def test_has_member_cache(provider, mock_get_identity_groups):
+@pytest.mark.usefixtures('mock_get_identity_groups')
+def test_has_member_cache(provider):
     test_group = CERNGroup(provider, 'cern users')
     test_group.has_member('12345')
 
@@ -45,7 +46,8 @@ def test_has_member_cache(provider, mock_get_identity_groups):
     assert(test_group.provider.cache.get('flask-multipass-cern:cip:groups:12345:timestamp'))
 
 
-def test_has_member_cache_miss(provider, mock_get_identity_groups, spy_cache_set):
+@pytest.mark.usefixtures('mock_get_identity_groups')
+def test_has_member_cache_miss(provider, spy_cache_set):
     test_group = CERNGroup(provider, 'cern users')
     test_group.has_member('12345')
 
@@ -60,8 +62,8 @@ def test_has_member_cache_hit(provider, mock_get_identity_groups):
 
     assert not mock_get_identity_groups.called
 
-
-def test_has_member_request_fails(provider, mock_get_api_session, mock_get_identity_groups_fail):
+@pytest.mark.usefixtures('mock_get_identity_groups')
+def test_has_member_request_fails(provider, mock_get_identity_groups_fail):
     test_group = CERNGroup(provider, 'cern users')
     res = test_group.has_member('12345')
 

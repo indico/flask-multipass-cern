@@ -3,6 +3,8 @@ from datetime import datetime
 import freezegun
 import httpretty
 import pytest
+from flask import Flask
+from flask_multipass import Multipass
 from requests.sessions import Session
 
 from flask_multipass_cern import CERNIdentityProvider, retry_config
@@ -50,6 +52,14 @@ def mock_get_api_session(mocker):
     return mock_session
 
 
+@pytest.fixture(autouse=True)
+def flask_app():
+    app = Flask(__name__)
+    Multipass(app)
+    with app.app_context():
+        yield app
+
+
 @pytest.fixture
 def provider():
     settings = {
@@ -60,7 +70,7 @@ def provider():
 
 
 @pytest.fixture
-def freeze_time(monkeypatch):
+def freeze_time():
     freezers = []
 
     def _freeze_time(time_to_freeze):
