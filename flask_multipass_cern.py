@@ -30,6 +30,7 @@ CERN_OIDC_WELLKNOWN_URL = 'https://auth.cern.ch/auth/realms/cern/.well-known/ope
 HTTP_RETRY_COUNT = 5
 
 retry_config = HTTPAdapter(max_retries=Retry(total=HTTP_RETRY_COUNT,
+                                             backoff_factor=0.5,
                                              status_forcelist=[503, 504],
                                              allowed_methods=frozenset(['GET']),
                                              raise_on_status=False))
