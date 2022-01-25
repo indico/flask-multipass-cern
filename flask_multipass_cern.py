@@ -24,7 +24,7 @@ from requests.exceptions import RequestException
 from urllib3 import Retry
 
 
-CACHE_LONG_TTL = 86400 * 2
+CACHE_LONG_TTL = 86400 * 7
 CACHE_TTL = 1800
 CERN_OIDC_WELLKNOWN_URL = 'https://auth.cern.ch/auth/realms/cern/.well-known/openid-configuration'
 HTTP_RETRY_COUNT = 5
