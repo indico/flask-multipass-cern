@@ -148,7 +148,7 @@ class CERNGroup(Group):
                     'instituteName',
                     'telephone1',
                     'primaryAccountEmail',
-                    'cernPersonId',
+                    'personId',
                 ],
                 'recursive': 'true'
             }
@@ -235,7 +235,7 @@ class CERNIdentityProvider(IdentityProvider):
         data['telephone1'] = self.settings['phone_prefix'] + phone
 
     def _extract_extra_data(self, data, default=None):
-        return {'cern_person_id': normalize_cern_person_id(data.pop('cernPersonId', default))}
+        return {'cern_person_id': normalize_cern_person_id(data.pop('personId', default))}
 
     def get_identity_from_auth(self, auth_info):
         upn = auth_info.data.get('sub')
@@ -340,7 +340,7 @@ class CERNIdentityProvider(IdentityProvider):
                 'instituteName',
                 'telephone1',
                 'primaryAccountEmail',
-                'cernPersonId',
+                'personId',
             ],
         }
 
@@ -446,7 +446,7 @@ class CERNIdentityProvider(IdentityProvider):
                 'instituteName',
                 'telephone1',
                 'primaryAccountEmail',
-                'cernPersonId',
+                'personId',
             ],
         }
         resp = self.authlib_client.get(f'{self.authz_api_base}/api/v1.0/Identity/current', token=user_api_token,
@@ -499,7 +499,7 @@ class CERNIdentityProvider(IdentityProvider):
                 'instituteName',
                 'telephone1',
                 'primaryAccountEmail',
-                'cernPersonId',
+                'personId',
             ]
         }
         with self._get_api_session() as api_session:
@@ -514,7 +514,7 @@ class CERNIdentityProvider(IdentityProvider):
             ('given_name', 'firstName'),
             ('family_name', 'lastName'),
             ('email', 'primaryAccountEmail'),
-            ('cern_person_id', 'cernPersonId'),
+            ('cern_person_id', 'personId'),
         ]
 
         for token_field, api_field in fields_to_compare:
