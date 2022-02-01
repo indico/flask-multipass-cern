@@ -12,7 +12,7 @@ def test_get_identity_groups_retry(provider):
     httpretty.register_uri(httpretty.GET, test_uri, status=503)
 
     try:
-        provider.get_identity_groups(1)
+        provider.get_identity_groups('1')
     except requests.exceptions.RequestException:
         assert len(httpretty.latest_requests()) == HTTP_RETRY_COUNT + 1
 
@@ -24,7 +24,7 @@ def test_get_identity_data_retry(provider):
     httpretty.register_uri(httpretty.GET, test_uri, status=503)
 
     try:
-        provider._get_identity_data(1)
+        provider._get_identity_data('1')
     except requests.exceptions.RequestException:
         assert len(httpretty.latest_requests()) == HTTP_RETRY_COUNT + 1
 
