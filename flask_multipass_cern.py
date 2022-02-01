@@ -518,8 +518,8 @@ class CERNIdentityProvider(IdentityProvider):
         ]
 
         for token_field, api_field in fields_to_compare:
-            token_value = str(token_data.get(token_field, ''))
-            api_value = str(api_data.get(api_field, ''))
+            token_value = str(token_data.get(token_field) or '<missing>')
+            api_value = str(api_data.get(api_field) or '<missing>')
             if token_value != api_value:
                 self.logger.warning('Field %s mismatch for %s: %s in id_token, %s in authz api',
                                     token_field, token_data['sub'], token_value, api_value)
