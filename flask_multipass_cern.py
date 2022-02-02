@@ -269,12 +269,12 @@ class CERNIdentityProvider(IdentityProvider):
                 raise IdentityRetrievalFailed('Retrieving identity information from CERN SSO failed', provider=self)
 
             data = {
-                'firstName': auth_info.data['given_name'],
-                'lastName': auth_info.data['family_name'],
-                'displayName': auth_info.data['name'],
+                'firstName': auth_info.data.get('given_name'),
+                'lastName': auth_info.data.get('family_name'),
+                'displayName': auth_info.data.get('name'),
                 'telephone1': phone,
                 'instituteName': affiliation,
-                'primaryAccountEmail': auth_info.data['email'],
+                'primaryAccountEmail': auth_info.data.get('email'),
             }
 
         self._fix_phone(data)
