@@ -5,6 +5,11 @@ import requests
 from flask_multipass_cern import HTTP_RETRY_COUNT
 
 
+@pytest.fixture(autouse=True)
+def faster_retries(monkeypatch):
+    monkeypatch.setattr('flask_multipass_cern.retry_config.max_retries.backoff_factor', 0)
+
+
 @pytest.mark.usefixtures('httpretty_enabled', 'mock_get_api_session')
 def test_get_identity_groups_retry(provider):
     authz_api = provider.settings.get('authz_api')
