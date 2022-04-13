@@ -132,9 +132,12 @@ class CERNGroup(Group):
     supports_member_list = True
 
     def get_members(self):
-        assert '/' not in self.name
+        name = self.name
+        if self.provider.settings['cern_users_group'] and self.name.lower() == 'cern users':
+            name = self.provider.settings['cern_users_group']
+        assert '/' not in name
         with self.provider._get_api_session() as api_session:
-            group_data = self.provider._get_group_data(self.name)
+            group_data = self.provider._get_group_data(name)
             if group_data is None:
                 return
             gid = group_data['id']
@@ -384,7 +387,10 @@ class CERNIdentityProvider(IdentityProvider):
                 return set()
             resp.raise_for_status()
             results = resp.json()['data']
-        return {self.group_class(self, res['groupIdentifier']) for res in results}
+        groups = {self.group_class(self, res['groupIdentifier']) for res in results}
+        if self.settings['cern_users_group'] and any(g.name == self.settings['cern_users_group'] for g in groups):
+            groups.add(self.group_class(self, 'CERN Users'))
+        return groups
 
     def get_group(self, name):
         return self.group_class(self, name)
