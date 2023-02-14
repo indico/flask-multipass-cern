@@ -153,9 +153,9 @@ class CERNGroup(Group):
                     'primaryAccountEmail',
                     'personId',
                 ],
-                'recursive': 'true'
             }
-            results = self.provider._fetch_all(api_session, f'/api/v1.0/Group/{gid}/memberidentities', params)[0]
+            results = self.provider._fetch_all(api_session, f'/api/v1.0/Group/{gid}/memberidentities/precomputed',
+                                               params)[0]
         for res in results:
             del res['id']  # id is always included
             self.provider._fix_phone(res)
