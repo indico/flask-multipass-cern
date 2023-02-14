@@ -42,8 +42,8 @@ def test_has_member_cache(provider):
     test_group = CERNGroup(provider, 'cern users')
     test_group.has_member('12345')
 
-    assert(test_group.provider.cache.get('flask-multipass-cern:cip:groups:12345'))
-    assert(test_group.provider.cache.get('flask-multipass-cern:cip:groups:12345:timestamp'))
+    assert test_group.provider.cache.get('flask-multipass-cern:cip:groups:12345')
+    assert test_group.provider.cache.get('flask-multipass-cern:cip:groups:12345:timestamp')
 
 
 @pytest.mark.usefixtures('mock_get_identity_groups')
