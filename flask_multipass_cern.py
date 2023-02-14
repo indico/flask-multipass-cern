@@ -383,7 +383,7 @@ class CERNIdentityProvider(IdentityProvider):
         with self._get_api_session() as api_session:
             identifier = identifier.replace('/', '%2F')  # edugain identifiers sometimes contain slashes
             resp = api_session.get(f'{self.authz_api_base}/api/v1.0/IdentityMembership/{identifier}/precomputed')
-            if resp.status_code == 404 or resp.status_code == 500:
+            if resp.status_code == 404:
                 return set()
             resp.raise_for_status()
             results = resp.json()['data']
