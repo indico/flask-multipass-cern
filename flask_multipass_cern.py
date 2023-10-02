@@ -347,7 +347,16 @@ class CERNIdentityProvider(IdentityProvider):
             ],
         }
 
-        with self._get_api_session() as api_session:
+        try:
+            api_session = self._get_api_session()
+        except RequestException:
+            self.logger.warning('Refreshing identities failed for criteria %s (could not get API token)', criteria)
+            if use_cache and cached_data:
+                return cached_results, cached_data[1]
+            else:
+                self.logger.error('Getting identities failed for criteria %s (could not get API token)', criteria)
+                raise
+        with api_session:
             results = []
             total = 0
             try:
