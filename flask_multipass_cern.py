@@ -26,10 +26,11 @@ from urllib3 import Retry
 CACHE_LONG_TTL = 86400 * 7
 CACHE_TTL = 1800
 CERN_OIDC_WELLKNOWN_URL = 'https://auth.cern.ch/auth/realms/cern/.well-known/openid-configuration'
-HTTP_RETRY_COUNT = 5
-
+# not sure if retries are still needed, but by not using a backoff we don't risk taking down the site
+# using this library in case the API is persistently failing with an error
+HTTP_RETRY_COUNT = 2
 retry_config = HTTPAdapter(max_retries=Retry(total=HTTP_RETRY_COUNT,
-                                             backoff_factor=0.5,
+                                             backoff_factor=0,
                                              status_forcelist=[503, 504],
                                              allowed_methods=frozenset(['GET']),
                                              raise_on_status=False))
