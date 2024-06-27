@@ -23,7 +23,6 @@ from requests.adapters import HTTPAdapter
 from requests.exceptions import RequestException
 from urllib3 import Retry
 
-
 CACHE_LONG_TTL = 86400 * 7
 CACHE_TTL = 1800
 CERN_OIDC_WELLKNOWN_URL = 'https://auth.cern.ch/auth/realms/cern/.well-known/openid-configuration'
@@ -449,7 +448,7 @@ class CERNIdentityProvider(IdentityProvider):
         # Exchange the user token to one for the authorization API
         user_api_token = self.authlib_client.fetch_access_token(
             grant_type='urn:ietf:params:oauth:grant-type:token-exchange',
-            subject_token_type='urn:ietf:params:oauth:token-type:access_token',
+            subject_token_type='urn:ietf:params:oauth:token-type:access_token',  # noqa: S106
             audience='authorization-service-api',
             subject_token=auth_info.data['token']['access_token'],
         )
@@ -516,7 +515,7 @@ class CERNIdentityProvider(IdentityProvider):
                 'telephone1',
                 'primaryAccountEmail',
                 'personId',
-            ]
+            ],
         }
         with self._get_api_session() as api_session:
             identifier = identifier.replace('/', '%2F')  # edugain identifiers sometimes contain slashes

@@ -13,7 +13,7 @@ from flask_multipass_cern import CERNIdentityProvider, retry_config
 class MemoryCacheEntry:
     def __init__(self, value, timeout=0):
         self.value = value
-        self.timeout = timeout if timeout else None
+        self.timeout = timeout or None
         self.timestamp = datetime.now()
 
 
@@ -65,7 +65,7 @@ def flask_app():
 def provider():
     settings = {
         'authlib_args': {'client_id': 'test', 'client_secret': 'test'},
-        'cache': MemoryCache
+        'cache': MemoryCache,
     }
     return CERNIdentityProvider(None, 'cip', settings)
 
