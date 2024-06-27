@@ -65,6 +65,9 @@ class ExtendedCache:
         if refresh_timeout:
             self.cache.set(f'{key}:timestamp', datetime.now(), refresh_timeout)
 
+    def delay_refresh(self, key, timeout):
+        self.cache.set(f'{key}:timestamp', datetime.now(), timeout)
+
     def should_refresh(self, key):
         if self.cache is None:
             return True
@@ -164,21 +167,12 @@ class CERNGroup(Group):
             yield IdentityInfo(self.provider, identifier, extra_data, **res)
 
     def has_member(self, identifier):
-        cache = self.provider.cache
-        logger = self.provider.logger
-        cache_key = f'flask-multipass-cern:{self.provider.name}:groups:{identifier}'
-        all_groups = cache.get(cache_key)
-
-        if all_groups is None or cache.should_refresh(cache_key):
-            try:
-                all_groups = {g.name.lower() for g in self.provider.get_identity_groups(identifier)}
-                cache.set(cache_key, all_groups, CACHE_LONG_TTL, CACHE_TTL)
-            except RequestException:
-                logger.warning('Refreshing user groups failed for %s', identifier)
-                if all_groups is None:
-                    logger.error('Getting user groups failed for %s, access will be denied', identifier)
-                    return False
-
+        try:
+            all_groups = {g.name.lower() for g in self.provider.get_identity_groups(identifier)}
+        except RequestException:
+            # request failed and could not be satisfied from cache
+            self.provider.logger.error('Getting user groups failed for %s, access will be denied', identifier)
+            return False
         if self.provider.settings['cern_users_group'] and self.name.lower() == 'cern users':
             return self.provider.settings['cern_users_group'].lower() in all_groups
         return self.name.lower() in all_groups
@@ -352,6 +346,7 @@ class CERNIdentityProvider(IdentityProvider):
         except RequestException:
             self.logger.warning('Refreshing identities failed for criteria %s (could not get API token)', criteria)
             if use_cache and cached_data:
+                self.cache.delay_refresh(cache_key, CACHE_TTL)
                 return cached_results, cached_data[1]
             else:
                 self.logger.error('Getting identities failed for criteria %s (could not get API token)', criteria)
@@ -364,6 +359,7 @@ class CERNIdentityProvider(IdentityProvider):
             except RequestException:
                 self.logger.warning('Refreshing identities failed for criteria %s', criteria)
                 if use_cache and cached_data:
+                    self.cache.delay_refresh(cache_key, CACHE_TTL)
                     return cached_results, cached_data[1]
                 else:
                     self.logger.error('Getting identities failed for criteria %s', criteria)
@@ -388,7 +384,7 @@ class CERNIdentityProvider(IdentityProvider):
             self.cache.set(cache_key, (cache_data, total), CACHE_LONG_TTL, CACHE_TTL * 2)
         return identities, total
 
-    def get_identity_groups(self, identifier):
+    def _fetch_identity_group_names(self, identifier):
         with self._get_api_session() as api_session:
             identifier = identifier.replace('/', '%2F')  # edugain identifiers sometimes contain slashes
             resp = api_session.get(f'{self.authz_api_base}/api/v1.0/IdentityMembership/{identifier}/precomputed')
@@ -396,10 +392,31 @@ class CERNIdentityProvider(IdentityProvider):
                 return set()
             resp.raise_for_status()
             results = resp.json()['data']
-        groups = {self.group_class(self, res['groupIdentifier']) for res in results}
-        if self.settings['cern_users_group'] and any(g.name == self.settings['cern_users_group'] for g in groups):
-            groups.add(self.group_class(self, 'CERN Users'))
+        groups = {res['groupIdentifier'] for res in results}
+        if self.settings['cern_users_group'] and any(g == self.settings['cern_users_group'] for g in groups):
+            groups.add('CERN Users')
         return groups
+
+    def get_identity_groups(self, identifier):
+        cache_key = f'flask-multipass-cern:{self.name}:groups:{identifier}'
+        group_names = self.cache.get(cache_key)
+
+        if group_names is None or self.cache.should_refresh(cache_key):
+            try:
+                group_names = self._fetch_identity_group_names(identifier)
+                self.cache.set(cache_key, group_names, CACHE_LONG_TTL, CACHE_TTL)
+            except RequestException:
+                self.logger.warning('Refreshing user groups failed for %s', identifier)
+                if group_names is not None:
+                    self.cache.delay_refresh(cache_key, CACHE_TTL)
+                else:
+                    self.logger.error('Getting user groups failed for %s, request will fail', identifier)
+                    raise
+
+        if self.settings['cern_users_group'] and any(g == self.settings['cern_users_group'] for g in group_names):
+            group_names.add('CERN Users')
+
+        return {self.group_class(self, g) for g in group_names}
 
     def get_group(self, name):
         return self.group_class(self, name)

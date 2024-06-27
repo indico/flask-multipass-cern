@@ -1,5 +1,4 @@
 from datetime import datetime
-from unittest.mock import MagicMock
 
 import pytest
 from requests import Session
@@ -17,17 +16,15 @@ def mock_get_api_session(mocker):
 
 
 @pytest.fixture
-def mock_get_identity_groups(mocker):
-    get_identity_groups = mocker.patch('flask_multipass_cern.CERNIdentityProvider.get_identity_groups')
-    group = MagicMock()
-    group.name = 'cern users'
-    get_identity_groups.return_value = {group}
+def mock_fetch_identity_group_names(mocker):
+    get_identity_groups = mocker.patch('flask_multipass_cern.CERNIdentityProvider._fetch_identity_group_names')
+    get_identity_groups.return_value = {'cern users'}
     return get_identity_groups
 
 
 @pytest.fixture
 def mock_get_identity_groups_fail(mocker):
-    get_identity_groups = mocker.patch('flask_multipass_cern.CERNIdentityProvider.get_identity_groups')
+    get_identity_groups = mocker.patch('flask_multipass_cern.CERNIdentityProvider._fetch_identity_group_names')
     get_identity_groups.side_effect = RequestException()
     return get_identity_groups
 
@@ -37,7 +34,7 @@ def spy_cache_set(mocker):
     return mocker.spy(MemoryCache, 'set')
 
 
-@pytest.mark.usefixtures('mock_get_identity_groups')
+@pytest.mark.usefixtures('mock_fetch_identity_group_names')
 def test_has_member_cache(provider):
     test_group = CERNGroup(provider, 'cern users')
     test_group.has_member('12345')
@@ -46,7 +43,7 @@ def test_has_member_cache(provider):
     assert test_group.provider.cache.get('flask-multipass-cern:cip:groups:12345:timestamp')
 
 
-@pytest.mark.usefixtures('mock_get_identity_groups')
+@pytest.mark.usefixtures('mock_fetch_identity_group_names')
 def test_has_member_cache_miss(provider, spy_cache_set):
     test_group = CERNGroup(provider, 'cern users')
     test_group.has_member('12345')
@@ -54,16 +51,16 @@ def test_has_member_cache_miss(provider, spy_cache_set):
     assert spy_cache_set.call_count == 2
 
 
-def test_has_member_cache_hit(provider, mock_get_identity_groups):
+def test_has_member_cache_hit(provider, mock_fetch_identity_group_names):
     test_group = CERNGroup(provider, 'cern users')
     test_group.provider.cache.set('flask-multipass-cern:cip:groups:12345', 'cern users')
     test_group.provider.cache.set('flask-multipass-cern:cip:groups:12345:timestamp', datetime.now())
     test_group.has_member('12345')
 
-    assert not mock_get_identity_groups.called
+    assert not mock_fetch_identity_group_names.called
 
 
-@pytest.mark.usefixtures('mock_get_identity_groups')
+@pytest.mark.usefixtures('mock_fetch_identity_group_names')
 def test_has_member_request_fails(provider, mock_get_identity_groups_fail):
     test_group = CERNGroup(provider, 'cern users')
     res = test_group.has_member('12345')
