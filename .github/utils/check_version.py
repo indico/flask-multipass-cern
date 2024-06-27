@@ -1,7 +1,6 @@
 import sys
 from configparser import ConfigParser
 
-
 cp = ConfigParser()
 cp.read('setup.cfg')
 version = cp['metadata']['version']
