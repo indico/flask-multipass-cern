@@ -1,0 +1,28 @@
+[project]
+name = 'Flask-Multipass-CERN'
+version = '2.2.10'
+description = 'CERN-specific Flask-Multipass providers'
+readme = 'README.md'
+license = 'MIT'
+authors = [{ name = 'Indico Team', email = 'indico-team@cern.ch' }]
+requires-python = '~=3.9'
+dependencies = ['flask-multipass[authlib]>=0.4.3', 'urllib3>=1.26.0']
+
+[project.optional-dependencies]
+dev = ['freezegun', 'httpretty', 'pytest', 'pytest-mock', 'ruff']
+
+[project.urls]
+GitHub = 'https://github.com/indico/flask-multipass-cern'
+
+[project.entry-points.'flask_multipass.auth_providers']
+cern = 'flask_multipass_cern:CERNAuthProvider'
+
+[project.entry-points.'flask_multipass.identity_providers']
+cern = 'flask_multipass_cern:CERNIdentityProvider'
+
+[build-system]
+requires = ['hatchling==1.25.0']
+build-backend = 'hatchling.build'
+
+[tool.hatch.build]
+exclude = ['.github', '.python-version']
