@@ -443,7 +443,7 @@ class CERNIdentityProvider(IdentityProvider):
         cache_key = f'flask-multipass-cern:{self.name}:api-token'
         token = self.cache.get(cache_key)
         if token:
-            oauth_session = OAuth2Session(token=token)
+            oauth_session = OAuth2Session(token=token, leeway=0)
             oauth_session.mount(self.authz_api_base, retry_config)
             return oauth_session
         meta = self.authlib_client.load_server_metadata()
@@ -453,6 +453,7 @@ class CERNIdentityProvider(IdentityProvider):
             self.authlib_client.client_secret,
             token_endpoint=token_endpoint,
             grant_type='client_credentials',
+            leeway=0,  # we handle leeway ourselves via the cache duration
         )
         oauth_session.mount(self.authz_api_base, retry_config)
         oauth_session.fetch_access_token(
