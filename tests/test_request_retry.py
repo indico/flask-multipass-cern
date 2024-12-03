@@ -35,18 +35,6 @@ def test_get_identity_data_retry(provider):
 
 
 @pytest.mark.usefixtures('httpretty_enabled', 'mock_get_api_session')
-def test_get_group_data_retry(provider):
-    authz_api = provider.settings.get('authz_api')
-    test_uri = f'{authz_api}/api/v1.0/Group'
-    httpretty.register_uri(httpretty.GET, test_uri, status=503)
-
-    try:
-        provider._get_group_data('mygroup')
-    except requests.exceptions.RequestException:
-        assert len(httpretty.latest_requests()) == HTTP_RETRY_COUNT + 1
-
-
-@pytest.mark.usefixtures('httpretty_enabled', 'mock_get_api_session')
 def test_fetch_all_retry(provider):
     authz_api_base = provider.settings.get('authz_api')
     test_uri = '/api/v1.0/Identity'

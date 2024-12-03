@@ -165,11 +165,6 @@ class CERNGroup(Group):
                 raise
 
         with api_session:
-            group_data = self.provider._get_group_data(name)
-            if group_data is None:
-                return
-            gid = group_data['id']
-
             params = {
                 'limit': 5000,
                 'field': [
@@ -183,7 +178,7 @@ class CERNGroup(Group):
                 ],
             }
             try:
-                results = self.provider._fetch_all(api_session, f'/api/v1.0/Group/{gid}/memberidentities/precomputed',
+                results = self.provider._fetch_all(api_session, f'/api/v1.0/Group/{name}/memberidentities/precomputed',
                                                 params)[0]
             except RequestException:
                 self.provider.logger.warning('Refreshing members failed for group %s', name)
@@ -551,20 +546,6 @@ class CERNIdentityProvider(IdentityProvider):
             # in case we got too many results due to a large last page
             results = results[:limit]
         return results, total
-
-    @memoize_request
-    def _get_group_data(self, name):
-        params = {
-            'filter': [f'groupIdentifier:eq:{name}'],
-            'field': ['id', 'groupIdentifier'],
-        }
-        with self._get_api_session() as api_session:
-            resp = api_session.get(f'{self.authz_api_base}/api/v1.0/Group', params=params)
-            resp.raise_for_status()
-            data = resp.json()
-        if len(data['data']) != 1:
-            return None
-        return data['data'][0]
 
     def _get_identity_data(self, identifier):
         params = {
