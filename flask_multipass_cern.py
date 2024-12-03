@@ -178,7 +178,7 @@ class CERNGroup(Group):
                 ],
             }
             try:
-                results = self.provider._fetch_all(api_session, f'/api/v1.0/Group/{name}/memberidentities/precomputed',
+                results = self.provider._fetch_all(api_session, f'/api/v1.0/Group/{name}/members/identities/recursive',
                                                 params)[0]
             except RequestException:
                 self.provider.logger.warning('Refreshing members failed for group %s', name)
@@ -425,7 +425,7 @@ class CERNIdentityProvider(IdentityProvider):
     def _fetch_identity_group_names(self, identifier):
         with self._get_api_session() as api_session:
             identifier = identifier.replace('/', '%2F')  # edugain identifiers sometimes contain slashes
-            resp = api_session.get(f'{self.authz_api_base}/api/v1.0/IdentityMembership/{identifier}/precomputed')
+            resp = api_session.get(f'{self.authz_api_base}/api/v1.0/identity/{identifier}/groups/recursive')
             if resp.status_code == 404:
                 return set()
             resp.raise_for_status()
