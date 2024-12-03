@@ -13,7 +13,7 @@ def faster_retries(monkeypatch):
 @pytest.mark.usefixtures('httpretty_enabled', 'mock_get_api_session')
 def test_get_identity_groups_retry(provider):
     authz_api = provider.settings.get('authz_api')
-    test_uri = f'{authz_api}/api/v1.0/IdentityMembership/1/precomputed'
+    test_uri = f'{authz_api}/api/v1.0/identity/1/groups/recursive'
     httpretty.register_uri(httpretty.GET, test_uri, status=503)
 
     try:
