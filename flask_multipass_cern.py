@@ -139,7 +139,32 @@ class CERNGroup(Group):
         if self.provider.settings['cern_users_group'] and self.name.lower() == 'cern users':
             name = self.provider.settings['cern_users_group']
         assert '/' not in name
-        with self.provider._get_api_session() as api_session:
+
+        cache_key = f'flask-multipass-cern:{self.provider.name}:group-members:{name}'
+        cached_results = None
+        if (cached_data := self.provider.cache.get(cache_key)) is not None:
+            cached_results = []
+            for res in cached_data:
+                identifier = res.pop('upn')
+                extra_data = self.provider._extract_extra_data(res)
+                cached_results.append(IdentityInfo(self.provider, identifier, extra_data, **res))
+            if not self.provider.cache.should_refresh(cache_key):
+                yield from cached_results
+                return
+
+        try:
+            api_session = self.provider._get_api_session()
+        except RequestException:
+            self.provider.logger.warning('Refreshing members failed for group %s (could not get API token)', name)
+            if cached_results is not None:
+                self.provider.cache.delay_refresh(cache_key, CACHE_TTL)
+                yield from cached_results
+                return
+            else:
+                self.provider.logger.error('Getting members failed for group %s (could not get API token)', name)
+                raise
+
+        with api_session:
             group_data = self.provider._get_group_data(name)
             if group_data is None:
                 return
@@ -157,14 +182,32 @@ class CERNGroup(Group):
                     'personId',
                 ],
             }
-            results = self.provider._fetch_all(api_session, f'/api/v1.0/Group/{gid}/memberidentities/precomputed',
-                                               params)[0]
+            try:
+                results = self.provider._fetch_all(api_session, f'/api/v1.0/Group/{gid}/memberidentities/precomputed',
+                                                params)[0]
+            except RequestException:
+                self.provider.logger.warning('Refreshing members failed for group %s', name)
+                if cached_results is not None:
+                    self.provider.cache.delay_refresh(cache_key, CACHE_TTL)
+                    yield from cached_results
+                    return
+                else:
+                    self.provider.logger.error('Getting members failed for group %s', name)
+                    raise
+
+        cache_data = []
+        identities = []
         for res in results:
             del res['id']  # id is always included
             self.provider._fix_phone(res)
-            identifier = res.pop('upn')
-            extra_data = self.provider._extract_extra_data(res)
-            yield IdentityInfo(self.provider, identifier, extra_data, **res)
+            res_copy = dict(res)
+            identifier = res_copy.pop('upn')
+            extra_data = self.provider._extract_extra_data(res_copy)
+            identities.append(IdentityInfo(self.provider, identifier, extra_data, **res_copy))
+            cache_data.append(res)
+
+        self.provider.cache.set(cache_key, cache_data, CACHE_LONG_TTL, CACHE_TTL)
+        yield from identities
 
     def has_member(self, identifier):
         try:
