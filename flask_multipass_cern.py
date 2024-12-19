@@ -179,7 +179,7 @@ class CERNGroup(Group):
             }
             try:
                 results = self.provider._fetch_all(api_session, f'/api/v1.0/Group/{name}/memberidentities/precomputed',
-                                                   params)[0]
+                                                   params, empty_if_404=True)[0]
             except RequestException:
                 self.provider.logger.warning('Refreshing members failed for group %s', name)
                 if cached_results is not None:
@@ -528,9 +528,11 @@ class CERNIdentityProvider(IdentityProvider):
         del data['id']  # id is always included
         return data
 
-    def _fetch_all(self, api_session, endpoint, params, limit=None):
+    def _fetch_all(self, api_session, endpoint, params, limit=None, *, empty_if_404=False):
         results = []
         resp = api_session.get(self.authz_api_base + endpoint, params=params)
+        if empty_if_404 and resp.status_code == 404:
+            return [], 0
         resp.raise_for_status()
         data = resp.json()
         total = data['pagination']['total']
@@ -540,6 +542,7 @@ class CERNIdentityProvider(IdentityProvider):
             if not data['pagination']['next'] or (limit is not None and len(results) >= limit):
                 break
             resp = api_session.get(self.authz_api_base + data['pagination']['next'])
+            # XXX we do not expect 404s here after the first one succeeded, so here we consider it a real error
             resp.raise_for_status()
             data = resp.json()
         if limit is not None:
