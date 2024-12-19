@@ -430,7 +430,8 @@ class CERNIdentityProvider(IdentityProvider):
                 return set()
             resp.raise_for_status()
             results = resp.json()['data']
-        groups = {res['groupIdentifier'] for res in results}
+        # authz api bug: filter out nonsense group names looking like `somegroup|someuuid`
+        groups = {res['groupIdentifier'] for res in results if '|' not in res['groupIdentifier']}
         if self.settings['cern_users_group'] and any(g == self.settings['cern_users_group'] for g in groups):
             groups.add('CERN Users')
         return groups
