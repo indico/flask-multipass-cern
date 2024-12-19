@@ -179,7 +179,7 @@ class CERNGroup(Group):
             }
             try:
                 results = self.provider._fetch_all(api_session, f'/api/v1.0/Group/{name}/memberidentities/precomputed',
-                                                params)[0]
+                                                   params)[0]
             except RequestException:
                 self.provider.logger.warning('Refreshing members failed for group %s', name)
                 if cached_results is not None:
