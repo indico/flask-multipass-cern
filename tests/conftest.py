@@ -7,7 +7,7 @@ from flask import Flask
 from flask_multipass import Multipass
 from requests.sessions import Session
 
-from flask_multipass_cern import CERNIdentityProvider, retry_config
+from flask_multipass_cern import CERNIdentityProvider, http_adapter
 
 
 class MemoryCacheEntry:
@@ -49,7 +49,7 @@ def httpretty_enabled():
 def mock_get_api_session(mocker):
     mock_session = mocker.patch('flask_multipass_cern.CERNIdentityProvider._get_api_session')
     mock_session.return_value = Session()
-    mock_session.return_value.mount('https://authorization-service-api.web.cern.ch', retry_config)
+    mock_session.return_value.mount('https://authorization-service-api.web.cern.ch', http_adapter)
     return mock_session
 
 
