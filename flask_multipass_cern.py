@@ -28,13 +28,29 @@ CACHE_TTL = 1800
 CERN_OIDC_WELLKNOWN_URL = 'https://auth.cern.ch/auth/realms/cern/.well-known/openid-configuration'
 # not sure if retries are still needed, but by not using a backoff we don't risk taking down the site
 # using this library in case the API is persistently failing with an error
-HTTP_RETRY_COUNT = 2
-retry_config = HTTPAdapter(max_retries=Retry(total=HTTP_RETRY_COUNT,
-                                             backoff_factor=0,
-                                             status_forcelist=[503, 504],
-                                             allowed_methods=frozenset(['GET']),
-                                             raise_on_status=False))
+HTTP_RETRY_COUNT = 0
+retry_config = Retry(
+    total=HTTP_RETRY_COUNT,
+    backoff_factor=0,
+    status_forcelist=[503, 504],
+    allowed_methods=frozenset(['GET']),
+    raise_on_status=False,
+)
 _cache_miss = object()
+
+
+class TimeoutHTTPAdapter(HTTPAdapter):
+    def __init__(self, *args, timeout=None, **kwargs):
+        self._default_timeout = timeout
+        super().__init__(*args, **kwargs)
+
+    def send(self, request, *, timeout=None, **kwargs):
+        if timeout is None:
+            timeout = self._default_timeout
+        return super().send(request, timeout=timeout, **kwargs)
+
+
+http_adapter = TimeoutHTTPAdapter(timeout=10, max_retries=retry_config)
 
 
 class ExtendedCache:
@@ -393,7 +409,7 @@ class CERNIdentityProvider(IdentityProvider):
             results = []
             total = 0
             try:
-                results, total = self._fetch_all(api_session, '/api/v1.0/Identity', params, limit=limit)
+                results, total = self._fetch_all(api_session, '/api/v1.0/Identity', params, limit=limit, timeout=20)
             except RequestException:
                 self.logger.warning('Refreshing identities failed for criteria %s', criteria)
                 if use_cache and cached_data:
@@ -483,7 +499,7 @@ class CERNIdentityProvider(IdentityProvider):
         token = self.cache.get(cache_key)
         if token:
             oauth_session = OAuth2Session(token=token, leeway=0)
-            oauth_session.mount(self.authz_api_base, retry_config)
+            oauth_session.mount(self.authz_api_base, http_adapter)
             return oauth_session
         meta = self.authlib_client.load_server_metadata()
         token_endpoint = meta['token_endpoint'].replace('protocol/openid-connect', 'api-access')
@@ -494,7 +510,7 @@ class CERNIdentityProvider(IdentityProvider):
             grant_type='client_credentials',
             leeway=0,  # we handle leeway ourselves via the cache duration
         )
-        oauth_session.mount(self.authz_api_base, retry_config)
+        oauth_session.mount(self.authz_api_base, http_adapter)
         oauth_session.fetch_access_token(
             audience='authorization-service-api',
             headers={'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
@@ -529,9 +545,9 @@ class CERNIdentityProvider(IdentityProvider):
         del data['id']  # id is always included
         return data
 
-    def _fetch_all(self, api_session, endpoint, params, limit=None, *, empty_if_404=False):
+    def _fetch_all(self, api_session, endpoint, params, limit=None, *, empty_if_404=False, timeout=None):
         results = []
-        resp = api_session.get(self.authz_api_base + endpoint, params=params)
+        resp = api_session.get(self.authz_api_base + endpoint, params=params, timeout=timeout)
         if empty_if_404 and resp.status_code == 404:
             return [], 0
         resp.raise_for_status()
@@ -542,7 +558,7 @@ class CERNIdentityProvider(IdentityProvider):
             results += data['data']
             if not data['pagination']['next'] or (limit is not None and len(results) >= limit):
                 break
-            resp = api_session.get(self.authz_api_base + data['pagination']['next'])
+            resp = api_session.get(self.authz_api_base + data['pagination']['next'], timeout=timeout)
             # XXX we do not expect 404s here after the first one succeeded, so here we consider it a real error
             resp.raise_for_status()
             data = resp.json()
