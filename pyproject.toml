@@ -1,6 +1,6 @@
 [project]
 name = 'Flask-Multipass-CERN'
-version = '2.2.14'
+version = '2.3'
 description = 'CERN-specific Flask-Multipass providers'
 readme = 'README.md'
 license = 'MIT'
