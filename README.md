@@ -15,9 +15,9 @@ the ability to search for CERN users, then this is a good choice for you.
 
 The following permissions (requested through the application portal) are needed:
 
-- Token exchange with `authorization-service-api` for basic login functionality
+- Group membership in `authorization-service-identity-readers` for basic login and user search
+  functionality
 - Group membership in `authorization-service-groups-readers` for group functionality
-- Group membership in `authorization-service-identity-readers` for user search functionality
 - Tokens with group membership information (optional) - this needs to be requested directly from
   the authorization service team
 

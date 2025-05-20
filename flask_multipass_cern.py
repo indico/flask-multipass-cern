@@ -503,14 +503,7 @@ class CERNIdentityProvider(IdentityProvider):
         return oauth_session
 
     def _fetch_identity_data(self, auth_info):
-        # Exchange the user token to one for the authorization API
-        user_api_token = self.authlib_client.fetch_access_token(
-            grant_type='urn:ietf:params:oauth:grant-type:token-exchange',
-            subject_token_type='urn:ietf:params:oauth:token-type:access_token',  # noqa: S106
-            audience='authorization-service-api',
-            subject_token=auth_info.data['token']['access_token'],
-        )
-
+        identifier = auth_info.data['sub'].replace('/', '%2F')  # edugain identifiers sometimes contain slashes
         params = {
             'field': [
                 'upn',
@@ -522,10 +515,10 @@ class CERNIdentityProvider(IdentityProvider):
                 'personId',
             ],
         }
-        resp = self.authlib_client.get(f'{self.authz_api_base}/api/v1.0/Identity/current', token=user_api_token,
-                                       params=params)
-        resp.raise_for_status()
-        data = resp.json()['data']
+        with self._get_api_session() as api_session:
+            resp = api_session.get(f'{self.authz_api_base}/api/v1.0/Identity/{identifier}', params=params)
+            resp.raise_for_status()
+            data = resp.json()['data']
         del data['id']  # id is always included
         return data
 
